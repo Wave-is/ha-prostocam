@@ -33,6 +33,18 @@ def auto_enable_custom_integrations(enable_custom_integrations: Any) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_deprecated_calls(caplog: pytest.LogCaptureFixture) -> Iterable[None]:
+    """Home Assistant only logs deprecated calls of a custom integration: fail on them."""
+    yield
+    reports = [
+        record.getMessage()
+        for record in caplog.records
+        if "custom integration 'prostocam'" in record.getMessage()
+    ]
+    assert not reports, reports
+
+
+@pytest.fixture(autouse=True)
 async def unload_entries(hass: Any) -> AsyncGenerator[None]:
     """Unload ProstoCAM entries after each test, so no timer lingers."""
     yield

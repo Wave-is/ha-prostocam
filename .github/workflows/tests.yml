@@ -10,13 +10,18 @@ permissions:
 
 jobs:
   pytest:
-    name: pytest
+    name: pytest (Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14: the newest Home Assistant; 3.13: the last releases that still run on it.
+        python: ["3.14", "3.13"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements_test.txt
       - name: Install
