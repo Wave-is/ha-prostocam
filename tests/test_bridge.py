@@ -16,13 +16,22 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
-from custom_components.prostocam.const import DOMAIN, ISSUE_OUTDATED, RETRY_MAX
+from custom_components.prostocam.const import (
+    CATALOG_COOLDOWN,
+    DOMAIN,
+    ISSUE_OUTDATED,
+    RETRY_MAX,
+)
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 from homeassistant.util import dt as dt_util
 
-from .conftest import TOKEN, calls_to, sent_alarms, sent_events, server_config
+from .conftest import BASE, TOKEN, calls_to, sent_alarms, sent_events, server_config
 
 DOOR = "binary_sensor.front_door"
 MOTION = "binary_sensor.hall_motion"
@@ -512,3 +521,73 @@ async def test_disabled_bridge_heartbeats_rarely(
     await bridge.async_heartbeat()
     # One at setup, then one try now, the 60 s one skipped, one after 10 minutes.
     assert len(calls_to(aioclient_mock, "heartbeat")) == 3
+
+
+async def test_battery_not_sent_without_server_consent(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """Protocol 1 has no `battery`: nothing is sent unless the server asks."""
+    mock_server()
+    _door(hass, "off", battery_level=87)
+    await _setup(hass, config_entry)
+    entities = calls_to(aioclient_mock, "entities")[0][2]["entities"]
+    assert all("battery" not in item for item in entities)
+
+
+async def test_battery_in_catalog_when_server_asks(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+) -> None:
+    """With `battery_levels`, the catalog carries the device battery and follows it."""
+    source = MockConfigEntry(domain="test")
+    source.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=source.entry_id,
+        identifiers={("test", "door")},
+        manufacturer="Tuya",
+        model="Door Sensor",
+    )
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        "binary_sensor",
+        "test",
+        "door",
+        suggested_object_id="front_door",
+        device_id=device.id,
+        config_entry=source,
+    )
+    ent_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "door_battery",
+        suggested_object_id="front_door_battery",
+        device_id=device.id,
+        original_device_class="battery",
+        config_entry=source,
+    )
+    _door(hass, "off")
+    hass.states.async_set("sensor.front_door_battery", "64", {"device_class": "battery"})
+    hass.states.async_set(MOTION, "off", {"device_class": "motion", "battery_level": 30.4})
+
+    reply = {"data": {"accepted": True, "config": {**server_config(), "battery_levels": True}}}
+    for path in ("heartbeat", "entities", "events", "alarm"):
+        aioclient_mock.post(f"{BASE}/{path}", json=reply)
+    await _setup(hass, config_entry)
+
+    entities = calls_to(aioclient_mock, "entities")[-1][2]["entities"]
+    by_id = {item["entity_id"]: item for item in entities}
+    assert by_id[DOOR]["battery"] == 64
+    assert by_id[DOOR]["manufacturer"] == "Tuya"
+    assert by_id[DOOR]["platform"] == "test"
+    assert by_id[MOTION]["battery"] == 30
+
+    hass.states.async_set("sensor.front_door_battery", "63", {"device_class": "battery"})
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=CATALOG_COOLDOWN + 1))
+    await hass.async_block_till_done()
+    entities = calls_to(aioclient_mock, "entities")[-1][2]["entities"]
+    assert {item["entity_id"]: item["battery"] for item in entities}[DOOR] == 63

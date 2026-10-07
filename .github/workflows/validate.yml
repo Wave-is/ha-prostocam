@@ -26,5 +26,5 @@ jobs:
         with:
           category: integration
           # brands: the icon is not in home-assistant/brands yet.
-          # description, topics: repository settings, set by the owner (then drop them here).
-          ignore: brands description topics
+          # topics: repository setting, set by the owner (then drop it here).
+          ignore: brands topics

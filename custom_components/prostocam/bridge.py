@@ -53,6 +53,7 @@ from .api import (
 from .const import (
     ALARM_DOMAIN,
     BATCH_SIZE,
+    BATTERY_ATTRIBUTES,
     CATALOG_COOLDOWN,
     CONF_DEVICE_CLASSES,
     CONF_DOMAINS,
@@ -65,6 +66,7 @@ from .const import (
     HEARTBEAT_MAX,
     HEARTBEAT_MIN,
     ISSUE_OUTDATED,
+    KEY_BATTERY_LEVELS,
     KEY_CATALOG_DOMAINS,
     KEY_CONFIG,
     KEY_ENABLED,
@@ -97,6 +99,19 @@ from .const import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
+
+
+def _battery_level(value: Any) -> int | None:
+    """0…100 from a state or an attribute; None when it is not a level."""
+    if isinstance(value, bool):
+        return None
+    try:
+        level = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= level <= 100:
+        return None
+    return round(level)
 
 
 def _str_list(value: Any) -> set[str] | None:
@@ -133,6 +148,9 @@ class ProstoCamBridge:
         # The bridge is switched off on the server (404 not_found): only heartbeats.
         self.disabled = False
         self.late_after = LATE_AFTER
+        # The server takes battery levels in the catalog (config `battery_levels`).
+        self.battery_levels = False
+        self._battery_entities: set[str] = set()
         self.catalog_size = 0
         self.stats: dict[str, Any] = {
             "sent": 0,
@@ -284,8 +302,31 @@ class ProstoCamBridge:
                     "platform": entity.platform if entity is not None else None,
                 }
             )
+            if self.battery_levels:
+                catalog[-1]["battery"] = self._battery_of(state, entity, ent_reg)
         catalog.sort(key=lambda item: item["entity_id"])
         return catalog[: self.max_catalog]
+
+    def _battery_of(
+        self, state: State, entity: er.RegistryEntry | None, ent_reg: er.EntityRegistry
+    ) -> int | None:
+        """Battery of the device: its battery sensor, else a battery attribute."""
+        if entity is not None and entity.device_id:
+            for other in er.async_entries_for_device(ent_reg, entity.device_id):
+                if other.domain != "sensor" or (
+                    other.device_class or other.original_device_class
+                ) != "battery":
+                    continue
+                self._battery_entities.add(other.entity_id)
+                battery_state = self.hass.states.get(other.entity_id)
+                level = _battery_level(battery_state.state if battery_state else None)
+                if level is not None:
+                    return level
+        for attribute in BATTERY_ATTRIBUTES:
+            level = _battery_level(state.attributes.get(attribute))
+            if level is not None:
+                return level
+        return None
 
     async def async_send_catalog(self) -> None:
         """Send the catalog unless the server already has the same one."""
@@ -320,7 +361,22 @@ class ProstoCamBridge:
     def _async_state_changed(self, event: Event) -> None:
         new_state: State | None = event.data.get("new_state")
         old_state: State | None = event.data.get("old_state")
-        if new_state is None or not self.matches(new_state):
+        if new_state is None:
+            return
+        if self.battery_levels and self._hass_started and (
+            new_state.entity_id in self._battery_entities
+            or (
+                old_state is not None
+                and self.matches(new_state)
+                and any(
+                    new_state.attributes.get(a) != old_state.attributes.get(a)
+                    for a in BATTERY_ATTRIBUTES
+                )
+            )
+        ):
+            # The battery is part of the catalog; the hash skips unchanged levels.
+            self._catalog_debouncer.async_schedule_call()
+        if not self.matches(new_state):
             return
         if old_state is None:
             # A new entity: the catalog changed, the appearance is not an event.
@@ -576,6 +632,11 @@ class ProstoCamBridge:
         max_catalog = config.get(KEY_MAX_CATALOG)
         if isinstance(max_catalog, int) and max_catalog >= 1:
             self.max_catalog = min(MAX_CATALOG, max_catalog)
+        battery_levels = config.get(KEY_BATTERY_LEVELS)
+        if isinstance(battery_levels, bool) and battery_levels != self.battery_levels:
+            self.battery_levels = battery_levels
+            if self._hass_started:
+                self._catalog_debouncer.async_schedule_call()
         late_after = config.get(KEY_LATE_AFTER)
         if isinstance(late_after, int) and late_after >= 0:
             self.late_after = late_after
@@ -684,6 +745,7 @@ class ProstoCamBridge:
             "outdated": self.outdated,
             "disabled": self.disabled,
             "late_after": self.late_after,
+            "battery_levels": self.battery_levels,
             "domains": sorted(self.domains),
             "device_classes": sorted(self.device_classes),
             "stats": dict(self.stats),

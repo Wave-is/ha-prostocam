@@ -46,7 +46,7 @@
 Надсилається:
 
 - **перелік** сутностей обраних типів: `entity_id`, назва, клас датчика, зона (area), виробник і модель пристрою,
-  інтеграція-джерело;
+  інтеграція-джерело, рівень заряду батареї пристрою (коли сервер ProstoCAM його приймає);
 - **зміни стану** лише тих датчиків, які ви **увімкнули в кабінеті**: було → стало і час зміни;
 - **режим охоронних панелей** (під охороною / знято / тривога), хто його змінив (ім'я з панелі, до 16 знаків) і режим при старті;
 - **пульс** раз на хвилину: версії Home Assistant та інтеграції.
@@ -99,7 +99,7 @@ the web account. By default: security binary sensors, alarm panels and sirens.
 Sent:
 
 - the **list** of entities of the chosen types: `entity_id`, name, device class, area, device manufacturer and model,
-  source integration;
+  source integration, battery level of the device (when the ProstoCAM server accepts it);
 - **state changes** only of the sensors you **switched on in the web account**: from → to and the time of the change;
 - the **mode of alarm panels** (armed / disarmed / triggered), who changed it (the name from the panel, up to 16 characters) and
   the mode at start;
