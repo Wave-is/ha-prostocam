@@ -85,7 +85,7 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask for the pairing code (and the server in advanced mode)."""
+        """Ask for the pairing code; the server field keeps its default for almost everyone."""
         errors: dict[str, str] = {}
         if user_input is not None:
             server = normalize_server(user_input.get(CONF_SERVER, DEFAULT_SERVER))
@@ -106,8 +106,7 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
 
         fields: dict[Any, Any] = {vol.Required(CONF_CODE): str}
-        if self.show_advanced_options:
-            fields[vol.Required(CONF_SERVER, default=DEFAULT_SERVER)] = str
+        fields[vol.Required(CONF_SERVER, default=DEFAULT_SERVER)] = str
         schema = vol.Schema(fields)
         if user_input is not None:
             schema = self.add_suggested_values_to_schema(

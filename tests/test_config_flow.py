@@ -53,7 +53,9 @@ async def test_user_flow_pairs_with_code(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
-    assert CONF_SERVER not in result["data_schema"].schema
+    # The advanced mode is gone from Home Assistant: the server field is always there
+    # with its default, a code alone is enough.
+    assert CONF_SERVER in result["data_schema"].schema
 
     with patch("custom_components.prostocam.async_setup_entry", return_value=True):
         result = await hass.config_entries.flow.async_configure(

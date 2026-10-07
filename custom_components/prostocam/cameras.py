@@ -402,7 +402,6 @@ class ProstoCamCameras:
             name=_str(item.get("name")) or f"{DEFAULT_TITLE} {camera_id}",
             manufacturer=_str(item.get("manufacturer")) or DEFAULT_TITLE,
             model=_str(item.get("model")),
-            suggested_area=_str(item.get("location")),
             configuration_url=self.client.server,
         )
 
@@ -413,8 +412,16 @@ class ProstoCamCameras:
     def _update_device(self, camera_id: int) -> None:
         """Names and models change in the web account; follow them."""
         dev_reg = dr.async_get(self.hass)
-        device = dev_reg.async_get_device(
-            identifiers={(DOMAIN, self.device_identifier(camera_id))}
+        identifier = (DOMAIN, self.device_identifier(camera_id))
+        device = next(
+            (
+                device
+                for device in dr.async_entries_for_config_entry(
+                    dev_reg, self.entry.entry_id
+                )
+                if identifier in device.identifiers
+            ),
+            None,
         )
         if device is None:
             return
@@ -437,9 +444,8 @@ class ProstoCamCameras:
                 camera_id = _int(identifier[len(prefix) :])
                 if camera_id is not None and camera_id not in keep:
                     LOGGER.info("ProstoCAM camera %s is no longer shared; removing it", camera_id)
-                    dev_reg.async_update_device(
-                        device.id, remove_config_entry_id=self.entry.entry_id
-                    )
+                    # The device belongs to this connection only.
+                    dev_reg.async_remove_device(device.id)
                     if (state := self.states.pop(camera_id, None)) is not None:
                         for unsub in state.reset_unsubs.values():
                             unsub()

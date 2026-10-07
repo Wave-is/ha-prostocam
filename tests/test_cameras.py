@@ -199,6 +199,20 @@ def register_cameras(
         )
 
 
+def device_of(
+    hass: HomeAssistant, entry: MockConfigEntry, identifier: str
+) -> dr.DeviceEntry | None:
+    """The device of the entry with this identifier (any Home Assistant version)."""
+    return next(
+        (
+            device
+            for device in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+            if (DOMAIN, identifier) in device.identifiers
+        ),
+        None,
+    )
+
+
 def entity_id(hass: HomeAssistant, domain: str, camera_id: int, key: str) -> str | None:
     """Entity id by unique id (entity names depend on translations)."""
     return er.async_get(hass).async_get_entity_id(domain, DOMAIN, f"42_{camera_id}_{key}")
@@ -271,8 +285,7 @@ async def test_cameras_become_devices_and_entities(
     """Every shared camera gets a device with a camera, sensors, an event and an image."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
 
-    dev_reg = dr.async_get(hass)
-    device = dev_reg.async_get_device(identifiers={(DOMAIN, "42_camera_12")})
+    device = device_of(hass, config_entry, "42_camera_12")
     assert device is not None
     assert device.name == "Gate"
     assert device.manufacturer == "Hikvision"
@@ -547,8 +560,7 @@ async def test_camera_no_longer_shared_is_removed(
 ) -> None:
     """The catalog read every 5 minutes drops the device of a camera that is gone."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
-    dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, "42_camera_14")}) is not None
+    assert device_of(hass, config_entry, "42_camera_14") is not None
 
     aioclient_mock.clear_requests()
     config = v2_config()
@@ -558,8 +570,8 @@ async def test_camera_no_longer_shared_is_removed(
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=CATALOG_INTERVAL + 1))
     await hass.async_block_till_done()
 
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, "42_camera_14")}) is None
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, "42_camera_15")}) is not None
+    assert device_of(hass, config_entry, "42_camera_14") is None
+    assert device_of(hass, config_entry, "42_camera_15") is not None
     assert entity_id(hass, "camera", 15, "camera") is not None
     assert entity_id(hass, "camera", 14, "camera") is None
 
