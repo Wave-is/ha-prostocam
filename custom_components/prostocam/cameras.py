@@ -827,6 +827,7 @@ def async_add_camera_entities(
 ) -> None:
     """Add entities for the cameras of the catalog now and for every new one."""
 
+    @callback
     def _add(camera_ids: list[int]) -> None:
         entities = [entity for camera_id in camera_ids for entity in build(camera_id)]
         if entities:
