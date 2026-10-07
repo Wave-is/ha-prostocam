@@ -1,0 +1,91 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect ProstoCAM",
+        "description": "In the ProstoCAM web account open Smart home, choose Home Assistant and press Connect. Enter the pairing code shown there; it is valid for 10 minutes.",
+        "data": {
+          "code": "Pairing code",
+          "server": "ProstoCAM server"
+        },
+        "data_description": {
+          "code": "8 letters and digits, for example ABCD-1234.",
+          "server": "Change only if your ProstoCAM provider gave you another address."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect ProstoCAM",
+        "description": "ProstoCAM no longer accepts this Home Assistant. In the web account open Smart home, Home Assistant, press Reconnect and enter the new pairing code. Sensors and camera links stay as they are.",
+        "data": {
+          "code": "Pairing code"
+        },
+        "data_description": {
+          "code": "8 letters and digits, for example ABCD-1234."
+        }
+      }
+    },
+    "error": {
+      "invalid_code": "The code is wrong or expired. Get a new code in the ProstoCAM web account.",
+      "invalid_server": "This is not a web address.",
+      "cannot_connect": "The ProstoCAM server can not be reached. Check the internet connection and try again.",
+      "unknown": "Unexpected error, see the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This ProstoCAM connection is already set up.",
+      "reauth_successful": "ProstoCAM is connected again.",
+      "wrong_account": "The code belongs to another ProstoCAM connection. Use the Reconnect button of this connection."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "What to share with ProstoCAM",
+        "description": "Only entities of these types appear in the ProstoCAM web account. Changes are sent only for entities you switch on there.",
+        "data": {
+          "domains": "Entity types",
+          "device_classes": "Binary sensor classes"
+        },
+        "data_description": {
+          "domains": "Alarm panels report arming and disarming.",
+          "device_classes": "Binary sensors of other classes (battery, connectivity and so on) are never sent."
+        }
+      }
+    },
+    "error": {
+      "no_domains": "Choose at least one entity type."
+    }
+  },
+  "selector": {
+    "domains": {
+      "options": {
+        "binary_sensor": "Binary sensors (doors, motion, leaks, smoke)",
+        "alarm_control_panel": "Alarm panels",
+        "lock": "Locks",
+        "siren": "Sirens",
+        "cover": "Gates, garage doors and blinds",
+        "event": "Events (doorbells, buttons)"
+      }
+    },
+    "device_classes": {
+      "options": {
+        "door": "Door",
+        "garage_door": "Garage door",
+        "window": "Window",
+        "opening": "Opening",
+        "motion": "Motion",
+        "occupancy": "Occupancy",
+        "presence": "Presence",
+        "moisture": "Water leak",
+        "smoke": "Smoke",
+        "gas": "Gas",
+        "carbon_monoxide": "Carbon monoxide",
+        "heat": "Heat",
+        "safety": "Safety",
+        "tamper": "Tamper",
+        "vibration": "Vibration",
+        "sound": "Sound",
+        "problem": "Problem"
+      }
+    }
+  }
+}
