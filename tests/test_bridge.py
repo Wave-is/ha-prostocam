@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
-from .conftest import TOKEN, calls_to, sent_alarms, sent_events
+from .conftest import TOKEN, calls_to, sent_alarms, sent_events, server_config
 
 DOOR = "binary_sensor.front_door"
 MOTION = "binary_sensor.hall_motion"
@@ -119,7 +119,9 @@ async def test_initial_alarm_mode_at_start(
         "user",
         "changed_at",
         "initial",
+        "queued_s",
     }
+    assert body["queued_s"] == 0
 
 
 async def test_events_only_for_enabled_entities(
@@ -153,6 +155,8 @@ async def test_events_only_for_enabled_entities(
     assert event["device_class"] == "door"
     assert event["friendly_name"] == "Front door"
     assert event["changed_at"]
+    assert event["queued_s"] == 0
+    assert not any(key.startswith("_") for key in event)
     body = calls_to(aioclient_mock, "events")[0][2]
     assert set(body) == {"stream", "events"}
     assert body["stream"] == sent_alarms(aioclient_mock)[0]["stream"]
@@ -384,3 +388,127 @@ async def test_queue_survives_restart(
     # The new start reports the panel mode again, with the next number.
     assert sent_alarms(aioclient_mock)[-1]["seq"] == 3
     assert not config_entry.runtime_data.queue
+
+
+class _FakeClock:
+    """Monotonic clock of HA the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_queued_s_counts_the_wait(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """`queued_s` is how long the event waited, by the monotonic clock of HA."""
+    mock_server(events={"status": 503})
+    _populate(hass)
+    await _setup(hass, config_entry)
+    bridge = config_entry.runtime_data
+    clock = _FakeClock()
+    bridge._clock = clock
+    bridge._last_heartbeat_try = None
+
+    _door(hass, "on")
+    await hass.async_block_till_done()
+    clock.now += 100
+    _door(hass, "off")
+    await hass.async_block_till_done()
+    # The failed attempts already carried the wait at that moment.
+    first_tries = [call[2]["events"] for call in calls_to(aioclient_mock, "events")]
+    assert [e["queued_s"] for e in first_tries[-1]] == [100, 0]
+
+    clock.now += 50.7
+    aioclient_mock.clear_requests()
+    mock_server()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_MAX + 1))
+    await hass.async_block_till_done()
+
+    events = sent_events(aioclient_mock)
+    assert [(e["to_state"], e["queued_s"]) for e in events] == [("on", 150), ("off", 50)]
+
+
+async def test_late_outcome_is_counted(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """The server's `late` outcome and `late_after_s` show up in diagnostics."""
+    reply = {
+        "data": {
+            "accepted": True,
+            "config": {**server_config([DOOR]), "late_after_s": 90},
+            "results": [{"seq": 2, "status": "accepted", "outcome": "late"}],
+        }
+    }
+    mock_server(enabled=[DOOR], events={"json": reply})
+    _populate(hass)
+    await _setup(hass, config_entry)
+    _door(hass, "on")
+    await hass.async_block_till_done()
+
+    bridge = config_entry.runtime_data
+    assert bridge.late_after == 90
+    assert bridge.stats["outcomes"] == {"late": 1}
+
+
+async def test_bridge_switched_off_on_server(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """404 not_found keeps the queue and rechecks with a heartbeat every 10 minutes."""
+    mock_server(events={"status": 404, "json": {"message": "x", "code": "not_found"}})
+    _populate(hass)
+    await _setup(hass, config_entry)
+    bridge = config_entry.runtime_data
+    clock = _FakeClock()
+    bridge._clock = clock
+    bridge._last_heartbeat_try = None
+
+    _door(hass, "on")
+    await hass.async_block_till_done()
+    assert bridge.disabled
+    assert len(bridge.queue) == 1
+
+    aioclient_mock.clear_requests()
+    mock_server()
+    await bridge.async_heartbeat()  # remembers the moment of the try
+    assert len(calls_to(aioclient_mock, "heartbeat")) == 1
+    assert not bridge.disabled
+    await hass.async_block_till_done()
+    assert [e["entity_id"] for e in sent_events(aioclient_mock)] == [DOOR]
+
+
+async def test_disabled_bridge_heartbeats_rarely(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """While switched off, heartbeats go out at most every 10 minutes."""
+    off = {"status": 404, "json": {"message": "x", "code": "not_found"}}
+    mock_server(heartbeat=off)
+    _populate(hass)
+    await _setup(hass, config_entry)
+    bridge = config_entry.runtime_data
+    assert bridge.disabled
+    clock = _FakeClock()
+    bridge._clock = clock
+    bridge._last_heartbeat_try = None
+
+    await bridge.async_heartbeat()
+    clock.now += 60
+    await bridge.async_heartbeat()
+    clock.now += 600
+    await bridge.async_heartbeat()
+    # One at setup, then one try now, the 60 s one skipped, one after 10 minutes.
+    assert len(calls_to(aioclient_mock, "heartbeat")) == 3

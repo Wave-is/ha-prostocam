@@ -266,6 +266,7 @@ async def test_options_flow(hass: HomeAssistant, config_entry: MockConfigEntry) 
         ({"status": 409, "json": {"message": "x", "code": "already_connected"}}, "already_connected"),
         ({"status": 426, "json": {"message": "x", "code": "client_outdated"}}, "client_outdated"),
         ({"status": 429, "json": {"message": "x", "code": "rate_limited"}}, "too_many_attempts"),
+        ({"status": 404, "json": {"message": "x", "code": "not_found"}}, "not_available"),
     ],
 )
 async def test_user_flow_server_refusals(

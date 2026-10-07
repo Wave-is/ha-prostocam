@@ -33,10 +33,15 @@ KEY_CATALOG_DOMAINS: Final = "catalog_domains"
 KEY_EVENT_DOMAINS: Final = "event_domains"
 KEY_MAX_BATCH: Final = "max_events_per_batch"
 KEY_MAX_CATALOG: Final = "max_catalog_entities"
+KEY_LATE_AFTER: Final = "late_after_s"
+KEY_PROTOCOL_VERSION: Final = "protocol_version"
+KEY_RESULTS: Final = "results"
+PROTOCOL_VERSION: Final = 1
 
 # Server error codes the integration tells apart.
 ERROR_ALREADY_CONNECTED: Final = "already_connected"
 ERROR_CLIENT_OUTDATED: Final = "client_outdated"
+ERROR_NOT_FOUND: Final = "not_found"
 
 # Config entry data.
 CONF_CODE: Final = "code"
@@ -104,8 +109,12 @@ CATALOG_COOLDOWN: Final = 150  # seconds
 BATCH_SIZE: Final = 100
 MAX_CATALOG: Final = 2000
 MAX_QUEUE: Final = 1000
-RETRY_MIN: Final = 2  # seconds
-RETRY_MAX: Final = 60  # seconds
+RETRY_MIN: Final = 5  # seconds
+RETRY_MAX: Final = 300  # seconds
+RATE_LIMIT_PAUSE: Final = 60  # seconds; the server sends no Retry-After
+DISABLED_RECHECK: Final = 600  # seconds between heartbeats while the bridge is off
+LATE_AFTER: Final = 120  # seconds, the server may change it
+MAX_QUEUED_S: Final = 86400
 STORAGE_VERSION: Final = 1
 SAVE_DELAY: Final = 10  # seconds
 MAX_USER_LENGTH: Final = 16

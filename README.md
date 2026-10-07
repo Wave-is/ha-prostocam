@@ -51,6 +51,9 @@
 - **режим охоронних панелей** (під охороною / знято / тривога), хто його змінив (ім'я з панелі, до 16 знаків) і режим при старті;
 - **пульс** раз на хвилину: версії Home Assistant та інтеграції.
 
+Події, які не вдалося доставити (немає інтернету, роботи на сервері), чекають у черзі (до 1000) і переживають
+перезапуск Home Assistant. Кожна подія каже серверу, скільки чекала: запізніла подія лише пишеться в журнал і не будить камери.
+
 Не надсилається: інші сутності й атрибути, історія, камери і зображення Home Assistant, координати, користувачі, паролі
 й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant — зв'язок лише в один бік.
 
@@ -110,7 +113,8 @@ The connection token is stored in Home Assistant and is redacted from diagnostic
 ### Reliability
 
 Events that can not be delivered (no internet, server maintenance) stay in a queue (up to 1000 events) and are retried with a
-growing pause of up to a minute; the queue survives a restart of Home Assistant. Transitions from or to `unavailable` /
+growing pause of up to five minutes; the queue survives a restart of Home Assistant. Each event tells the server how
+long it waited, so an event delivered too late is only logged and does not wake the cameras. Transitions from or to `unavailable` /
 `unknown` are not events and are not sent.
 
 ### Development

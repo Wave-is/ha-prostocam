@@ -100,4 +100,5 @@ def server_config(enabled: Iterable[str] = ENABLED) -> dict[str, Any]:
         "enabled_entities": list(enabled),
         "max_events_per_batch": 100,
         "max_catalog_entities": 2000,
+        "late_after_s": 120,
     }

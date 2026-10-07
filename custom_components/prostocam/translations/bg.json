@@ -30,6 +30,7 @@
       "already_connected": "Home Assistant на този профил вече е свързан с автоматизация rest_command. Първо я изключете в уеб профила на ProstoCAM.",
       "client_outdated": "ProstoCAM изисква по-нова версия на тази интеграция. Обновете я в HACS и рестартирайте Home Assistant.",
       "too_many_attempts": "Твърде много опити. Изчакайте минута и опитайте отново.",
+      "not_available": "Свързването на Home Assistant все още не е включено на този сървър на ProstoCAM. Обърнете се към доставчика на ProstoCAM.",
       "cannot_connect": "Сървърът на ProstoCAM е недостъпен. Проверете интернет връзката и опитайте отново.",
       "unknown": "Неочаквана грешка, вижте журнала на Home Assistant."
     },

@@ -30,6 +30,7 @@
       "already_connected": "Home Assistant of this account is already connected with a rest_command automation. Disconnect it in the ProstoCAM web account first.",
       "client_outdated": "ProstoCAM needs a newer version of this integration. Update it in HACS and restart Home Assistant.",
       "too_many_attempts": "Too many attempts. Wait a minute and try again.",
+      "not_available": "Home Assistant connections are not switched on for this ProstoCAM server yet. Contact your ProstoCAM provider.",
       "cannot_connect": "The ProstoCAM server can not be reached. Check the internet connection and try again.",
       "unknown": "Unexpected error, see the Home Assistant log."
     },

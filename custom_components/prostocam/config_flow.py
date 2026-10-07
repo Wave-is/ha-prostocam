@@ -47,6 +47,7 @@ from .const import (
     DOMAIN,
     ERROR_ALREADY_CONNECTED,
     ERROR_CLIENT_OUTDATED,
+    ERROR_NOT_FOUND,
     KEY_DISPLAY_NAME,
     KEY_INTEGRATION_ID,
     KEY_TOKEN,
@@ -171,6 +172,8 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "already_connected"
             elif err.code == ERROR_CLIENT_OUTDATED:
                 errors["base"] = "client_outdated"
+            elif err.code == ERROR_NOT_FOUND:
+                errors["base"] = "not_available"
             else:
                 errors[CONF_CODE] = "invalid_code"
             return None
