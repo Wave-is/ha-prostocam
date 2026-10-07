@@ -9,7 +9,7 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "0.1.0"
+VERSION: Final = "0.1.1"
 
 DEFAULT_SERVER: Final = "https://new.prosto.cam"
 DEFAULT_TITLE: Final = "ProstoCAM"
