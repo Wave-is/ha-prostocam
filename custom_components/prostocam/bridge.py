@@ -5,13 +5,14 @@ What it does:
 * sends the catalog of matching entities (domains and device classes chosen in
   the options) when Home Assistant has started and whenever the entity, device
   or area registry changes;
-* listens to `state_changed` and queues a transition of every entity the
-  subscriber enabled in the ProstoCAM web account (the server returns that
-  list in each reply);
-* sends the queue in batches: alarm panels to `/alarm`, everything else to
-  `/events`; a failed batch stays in the queue and is retried with a backoff,
-  a new event retries at once. The queue (and the sequence counter) survive a
-  restart of Home Assistant;
+* listens to `state_changed` and queues every transition of an entity the
+  subscriber enabled in the ProstoCAM web account, and of every alarm panel
+  (the server returns the enabled list and its limits in each reply);
+* sends the queue in order: sensors in batches to `/events`, alarm panel modes
+  one by one to `/alarm`. A failed request stays in the queue and is retried
+  with a backoff, a new event retries at once; sequence numbers make a resent
+  batch harmless. The queue and the counter survive a restart;
+* reports the mode of each alarm panel at start (`initial`, not an event);
 * sends a heartbeat so the server knows Home Assistant is alive.
 """
 
@@ -32,6 +33,7 @@ from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
     entity_registry as er,
+    issue_registry as ir,
 )
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
@@ -43,12 +45,13 @@ from .api import (
     ProstoCamAuthError,
     ProstoCamClient,
     ProstoCamError,
+    ProstoCamOutdatedError,
     ProstoCamRejectedError,
 )
 from .const import (
     ALARM_DOMAIN,
     BATCH_SIZE,
-    CATALOG_DEBOUNCE,
+    CATALOG_COOLDOWN,
     CONF_DEVICE_CLASSES,
     CONF_DOMAINS,
     DEFAULT_DEVICE_CLASSES,
@@ -57,10 +60,18 @@ from .const import (
     HEARTBEAT_INTERVAL,
     HEARTBEAT_MAX,
     HEARTBEAT_MIN,
+    ISSUE_OUTDATED,
+    KEY_CATALOG_DOMAINS,
+    KEY_CONFIG,
     KEY_ENABLED,
+    KEY_EVENT_DOMAINS,
     KEY_HEARTBEAT_INTERVAL,
+    KEY_MAX_BATCH,
+    KEY_MAX_CATALOG,
     LOGGER,
+    MAX_CATALOG,
     MAX_QUEUE,
+    MAX_USER_LENGTH,
     PATH_ALARM,
     PATH_ENTITIES,
     PATH_EVENTS,
@@ -76,12 +87,15 @@ from .const import (
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
-KIND_EVENT = "event"
-KIND_ALARM = "alarm"
+
+def _str_list(value: Any) -> set[str] | None:
+    if not isinstance(value, list):
+        return None
+    return {item for item in value if isinstance(item, str)}
 
 
 class ProstoCamBridge:
-    """Pushes catalog, events, alarm panel changes and heartbeats to ProstoCAM."""
+    """Pushes catalog, events, alarm panel modes and heartbeats to ProstoCAM."""
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, client: ProstoCamClient
@@ -94,11 +108,17 @@ class ProstoCamBridge:
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
         )
         self.queue: deque[dict[str, Any]] = deque()
-        self.enabled: set[str] | None = None
         self.stream = ""
         self.seq = 0
+        # What the server said in its last reply.
+        self.enabled: set[str] | None = None
+        self.catalog_domains: set[str] | None = None
+        self.event_domains: set[str] | None = None
+        self.max_batch = BATCH_SIZE
+        self.max_catalog = MAX_CATALOG
         self.heartbeat_interval = HEARTBEAT_INTERVAL
         self.auth_failed = False
+        self.outdated = False
         self.catalog_size = 0
         self.stats: dict[str, Any] = {
             "sent": 0,
@@ -114,6 +134,7 @@ class ProstoCamBridge:
         self._heartbeat_unsub: CALLBACK_TYPE | None = None
         self._retry_unsub: CALLBACK_TYPE | None = None
         self._retry_delay = 0.0
+        self._split_until = 0
         self._flush_task: asyncio.Task[None] | None = None
         self._catalog_hash: str | None = None
         self._catalog_pending = False
@@ -121,12 +142,12 @@ class ProstoCamBridge:
         self._catalog_debouncer = Debouncer(
             hass,
             LOGGER,
-            cooldown=CATALOG_DEBOUNCE,
+            cooldown=CATALOG_COOLDOWN,
             immediate=False,
             function=self.async_send_catalog,
         )
 
-    # ------------------------------------------------------------------ options
+    # ------------------------------------------------------------------ filter
 
     @property
     def domains(self) -> set[str]:
@@ -138,9 +159,11 @@ class ProstoCamBridge:
         """Binary sensor device classes the subscriber chose to share."""
         return set(self.entry.options.get(CONF_DEVICE_CLASSES, DEFAULT_DEVICE_CLASSES))
 
-    def matches(self, state: State) -> bool:
+    def matches(self, state: State, server_domains: set[str] | None = None) -> bool:
         """Whether an entity may be shared with ProstoCAM at all."""
         if state.domain not in self.domains:
+            return False
+        if server_domains is not None and state.domain not in server_domains:
             return False
         if state.domain == "binary_sensor":
             return state.attributes.get("device_class") in self.device_classes
@@ -184,6 +207,10 @@ class ProstoCamBridge:
         self._started_unsub = None
         self._hass_started = True
         await self.async_send_catalog()
+        # The current mode of every alarm panel: remembered by the server, not an event.
+        for state in self.hass.states.async_all(ALARM_DOMAIN):
+            if self.matches(state) and state.state not in SKIP_STATES:
+                self._enqueue(state, None, initial=True)
         self._schedule_flush()
 
     async def async_stop(self) -> None:
@@ -214,7 +241,7 @@ class ProstoCamBridge:
         area_reg = ar.async_get(self.hass)
         catalog: list[dict[str, Any]] = []
         for state in self.hass.states.async_all(sorted(self.domains)):
-            if not self.matches(state):
+            if not self.matches(state, self.catalog_domains):
                 continue
             entity = ent_reg.async_get(state.entity_id)
             device = (
@@ -229,48 +256,32 @@ class ProstoCamBridge:
             catalog.append(
                 {
                     "entity_id": state.entity_id,
-                    "domain": state.domain,
                     "name": state.name,
                     "device_class": state.attributes.get("device_class"),
-                    "state": state.state,
                     "area": area.name if area is not None else None,
                     "manufacturer": device.manufacturer if device is not None else None,
                     "model": device.model if device is not None else None,
-                    "source": entity.platform if entity is not None else None,
-                    "device_id": entity.device_id if entity is not None else None,
+                    "platform": entity.platform if entity is not None else None,
                 }
             )
         catalog.sort(key=lambda item: item["entity_id"])
-        return catalog
+        return catalog[: self.max_catalog]
 
     async def async_send_catalog(self) -> None:
         """Send the catalog unless the server already has the same one."""
-        if self._stopped or self.auth_failed:
+        if self._stopped or self.auth_failed or self.outdated:
             return
         catalog = self.build_catalog()
-        # Current states are informative only; they must not trigger a resend.
         digest = hashlib.sha256(
-            json.dumps(
-                [{k: v for k, v in item.items() if k != "state"} for item in catalog],
-                sort_keys=True,
-                ensure_ascii=False,
-            ).encode()
+            json.dumps(catalog, sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
         if digest == self._catalog_hash:
             return
-        payload = {
-            "ha_version": HA_VERSION,
-            "client_version": VERSION,
-            "entities": catalog,
-        }
         try:
-            data = await self.client.async_post(PATH_ENTITIES, payload)
-        except ProstoCamAuthError:
-            self._async_auth_failed()
-            return
+            data = await self.client.async_post(PATH_ENTITIES, {"entities": catalog})
         except ProstoCamError as err:
-            self._note_error(err)
             self._catalog_pending = True
+            self._handle_error(err)
             return
         self._catalog_hash = digest
         self._catalog_pending = False
@@ -300,22 +311,34 @@ class ProstoCamBridge:
             return
         if new_state.state in SKIP_STATES or old_state.state in SKIP_STATES:
             return
-        if self.enabled is None or new_state.entity_id not in self.enabled:
+        if self.event_domains is not None and new_state.domain not in self.event_domains:
+            return
+        if new_state.domain != ALARM_DOMAIN and (
+            self.enabled is None or new_state.entity_id not in self.enabled
+        ):
             return
         self._enqueue(new_state, old_state)
 
-    def _enqueue(self, new_state: State, old_state: State) -> None:
+    def _enqueue(
+        self, new_state: State, old_state: State | None, *, initial: bool = False
+    ) -> None:
         self.seq += 1
-        item = {
+        item: dict[str, Any] = {
             "seq": self.seq,
-            "kind": KIND_ALARM if new_state.domain == ALARM_DOMAIN else KIND_EVENT,
             "entity_id": new_state.entity_id,
-            "state": new_state.state,
-            "from_state": old_state.state,
+            "from_state": old_state.state if old_state is not None else None,
+            "to_state": new_state.state,
+            "friendly_name": new_state.name,
             "changed_at": new_state.last_changed.isoformat(),
-            "device_class": new_state.attributes.get("device_class"),
-            "name": new_state.name,
         }
+        if new_state.domain == ALARM_DOMAIN:
+            changed_by = new_state.attributes.get("changed_by")
+            if isinstance(changed_by, str) and changed_by.strip():
+                item["user"] = changed_by.strip()[:MAX_USER_LENGTH]
+            if initial:
+                item["initial"] = True
+        else:
+            item["device_class"] = new_state.attributes.get("device_class")
         if len(self.queue) >= MAX_QUEUE:
             self.queue.popleft()
             self.stats["dropped"] += 1
@@ -325,7 +348,7 @@ class ProstoCamBridge:
 
     @callback
     def _schedule_flush(self) -> None:
-        if self._stopped or self.auth_failed or not self.queue:
+        if self._stopped or self.auth_failed or self.outdated or not self.queue:
             return
         if self._flush_task is not None and not self._flush_task.done():
             return  # the running flush picks up new items
@@ -337,45 +360,47 @@ class ProstoCamBridge:
             self.hass, self._async_flush(), "prostocam_flush"
         )
 
+    def _next_request(self) -> tuple[str, dict[str, Any], int]:
+        """Path, body and the last sequence number of the next request."""
+        head = self.queue[0]
+        if head["entity_id"].startswith(f"{ALARM_DOMAIN}."):
+            body = {"stream": self.stream, "seq": head["seq"], "entity_id": head["entity_id"]}
+            body["state"] = head["to_state"]
+            for key in ("from_state", "friendly_name", "user", "changed_at", "initial"):
+                if head.get(key) is not None:
+                    body[key] = head[key]
+            return PATH_ALARM, body, head["seq"]
+        limit = 1 if head["seq"] <= self._split_until else self.max_batch
+        batch: list[dict[str, Any]] = []
+        for item in self.queue:
+            if item["entity_id"].startswith(f"{ALARM_DOMAIN}.") or len(batch) >= limit:
+                break
+            batch.append(item)
+        return PATH_EVENTS, {"stream": self.stream, "events": batch}, batch[-1]["seq"]
+
     async def _async_flush(self) -> None:
         while self.queue and not self._stopped:
-            kind = self.queue[0]["kind"]
-            batch: list[dict[str, Any]] = []
-            for item in self.queue:
-                if item["kind"] != kind or len(batch) >= BATCH_SIZE:
-                    break
-                batch.append(item)
-            payload = {
-                "stream": self.stream,
-                "sent_at": dt_util.utcnow().isoformat(),
-                "events": [
-                    {k: v for k, v in item.items() if k != "kind"} for item in batch
-                ],
-            }
+            path, body, last_seq = self._next_request()
+            count = len(body["events"]) if path == PATH_EVENTS else 1
             try:
-                data = await self.client.async_post(
-                    PATH_ALARM if kind == KIND_ALARM else PATH_EVENTS, payload
-                )
-            except ProstoCamAuthError:
-                self._async_auth_failed()
-                return
+                data = await self.client.async_post(path, body)
             except ProstoCamRejectedError as err:
-                LOGGER.warning(
-                    "ProstoCAM refused %s event(s) (%s); they are dropped",
-                    len(batch),
-                    err,
-                )
-                self.stats["rejected"] += len(batch)
                 self._note_error(err)
-                self._remove_upto(batch[-1]["seq"])
+                if count > 1:
+                    # One bad event refuses the whole batch: find it one by one.
+                    self._split_until = last_seq
+                    continue
+                LOGGER.warning("ProstoCAM refused an event (%s); it is dropped", err)
+                self.stats["rejected"] += 1
+                self._remove_upto(last_seq)
                 self._schedule_save()
                 continue
             except ProstoCamError as err:
-                self._note_error(err)
-                self._schedule_retry()
+                if self._handle_error(err):
+                    self._schedule_retry()
                 return
-            self._remove_upto(batch[-1]["seq"])
-            self.stats["sent"] += len(batch)
+            self._remove_upto(last_seq)
+            self.stats["sent"] += count
             self._retry_delay = 0.0
             self._note_success()
             self._apply_server_data(data)
@@ -416,14 +441,7 @@ class ProstoCamBridge:
         """Tell the server Home Assistant is alive and refresh the enabled list."""
         if self._stopped or self.auth_failed:
             return
-        payload = {
-            "ha_version": HA_VERSION,
-            "client_version": VERSION,
-            "stream": self.stream,
-            "seq": self.seq,
-            "queue": len(self.queue),
-            "entities": self.catalog_size,
-        }
+        payload = {"client_version": VERSION, "ha_version": HA_VERSION}
         try:
             data = await self.client.async_post(PATH_HEARTBEAT, payload)
         except ProstoCamAuthError:
@@ -432,8 +450,12 @@ class ProstoCamBridge:
             self._async_auth_failed()
             return
         except ProstoCamError as err:
-            self._note_error(err)
+            self._handle_error(err)
             return
+        if self.outdated:
+            # The server accepts this version again (an update, or a lower minimum).
+            self.outdated = False
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_OUTDATED)
         self._note_success()
         self._apply_server_data(data)
         if self._catalog_pending and self._hass_started:
@@ -443,10 +465,25 @@ class ProstoCamBridge:
     # ------------------------------------------------------------------ helpers
 
     def _apply_server_data(self, data: dict[str, Any]) -> None:
-        enabled = data.get(KEY_ENABLED)
-        if isinstance(enabled, list):
-            self.enabled = {item for item in enabled if isinstance(item, str)}
-        interval = data.get(KEY_HEARTBEAT_INTERVAL)
+        config = data.get(KEY_CONFIG)
+        if not isinstance(config, dict):
+            return
+        enabled = _str_list(config.get(KEY_ENABLED))
+        if enabled is not None:
+            self.enabled = enabled
+        catalog_domains = _str_list(config.get(KEY_CATALOG_DOMAINS))
+        if catalog_domains is not None:
+            self.catalog_domains = catalog_domains
+        event_domains = _str_list(config.get(KEY_EVENT_DOMAINS))
+        if event_domains is not None:
+            self.event_domains = event_domains
+        max_batch = config.get(KEY_MAX_BATCH)
+        if isinstance(max_batch, int) and max_batch >= 1:
+            self.max_batch = min(BATCH_SIZE, max_batch)
+        max_catalog = config.get(KEY_MAX_CATALOG)
+        if isinstance(max_catalog, int) and max_catalog >= 1:
+            self.max_catalog = min(MAX_CATALOG, max_catalog)
+        interval = config.get(KEY_HEARTBEAT_INTERVAL)
         if (
             isinstance(interval, int)
             and HEARTBEAT_MIN <= interval <= HEARTBEAT_MAX
@@ -456,6 +493,20 @@ class ProstoCamBridge:
             if self._heartbeat_unsub is not None:
                 self._reschedule_heartbeat()
 
+    def _handle_error(self, err: ProstoCamError) -> bool:
+        """Record an error; True when the request should be retried later."""
+        self._note_error(err)
+        if isinstance(err, ProstoCamAuthError):
+            self._async_auth_failed()
+            return False
+        if isinstance(err, ProstoCamOutdatedError):
+            self._async_outdated()
+            return False
+        if isinstance(err, ProstoCamRejectedError):
+            LOGGER.warning("ProstoCAM refused a request: %s", err)
+            return False
+        return True
+
     @callback
     def _async_auth_failed(self) -> None:
         if self.auth_failed:
@@ -463,6 +514,21 @@ class ProstoCamBridge:
         self.auth_failed = True
         LOGGER.warning("ProstoCAM rejected the token; pair Home Assistant again")
         self.entry.async_start_reauth(self.hass)
+
+    @callback
+    def _async_outdated(self) -> None:
+        if self.outdated:
+            return
+        self.outdated = True
+        LOGGER.warning("ProstoCAM needs a newer version of this integration")
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            ISSUE_OUTDATED,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_OUTDATED,
+        )
 
     def _note_success(self) -> None:
         self.stats["last_success"] = dt_util.utcnow().isoformat()
@@ -486,10 +552,17 @@ class ProstoCamBridge:
             "queue": len(self.queue),
             "queue_head": list(self.queue)[:5],
             "enabled_entities": sorted(self.enabled) if self.enabled is not None else None,
+            "catalog_domains": sorted(self.catalog_domains)
+            if self.catalog_domains is not None
+            else None,
+            "event_domains": sorted(self.event_domains)
+            if self.event_domains is not None
+            else None,
             "catalog_size": self.catalog_size,
             "catalog_pending": self._catalog_pending,
             "heartbeat_interval": self.heartbeat_interval,
             "auth_failed": self.auth_failed,
+            "outdated": self.outdated,
             "domains": sorted(self.domains),
             "device_classes": sorted(self.device_classes),
             "stats": dict(self.stats),

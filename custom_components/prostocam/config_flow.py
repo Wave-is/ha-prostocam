@@ -17,7 +17,6 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import callback
-from homeassistant.helpers import instance_id
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -29,6 +28,8 @@ from .api import (
     ProstoCamAuthError,
     ProstoCamClient,
     ProstoCamConnectionError,
+    ProstoCamOutdatedError,
+    ProstoCamRateLimitedError,
     ProstoCamRejectedError,
 )
 from .const import (
@@ -44,14 +45,17 @@ from .const import (
     DEFAULT_SERVER,
     DEFAULT_TITLE,
     DOMAIN,
+    ERROR_ALREADY_CONNECTED,
+    ERROR_CLIENT_OUTDATED,
+    KEY_DISPLAY_NAME,
     KEY_INTEGRATION_ID,
-    KEY_TITLE,
     KEY_TOKEN,
     LOGGER,
     SUPPORTED_DEVICE_CLASSES,
     SUPPORTED_DOMAINS,
 )
 
+KEY_TITLE = "title"
 CODE_RE = re.compile(rf"^[A-Z0-9]{{{CODE_LENGTH}}}$")
 
 
@@ -151,32 +155,45 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
             errors[CONF_CODE] = "invalid_code"
             return None
         client = ProstoCamClient(async_get_clientsession(self.hass), server)
-        ha_instance = await instance_id.async_get(self.hass)
         try:
-            data = await client.async_pair(code, ha_instance, HA_VERSION)
-        except (ProstoCamRejectedError, ProstoCamAuthError):
-            errors[CONF_CODE] = "invalid_code"
+            data = await client.async_pair(code, HA_VERSION)
+        except ProstoCamOutdatedError:
+            errors["base"] = "client_outdated"
+            return None
+        except ProstoCamRateLimitedError:
+            errors["base"] = "too_many_attempts"
             return None
         except ProstoCamConnectionError:
             errors["base"] = "cannot_connect"
+            return None
+        except ProstoCamRejectedError as err:
+            if err.code == ERROR_ALREADY_CONNECTED:
+                errors["base"] = "already_connected"
+            elif err.code == ERROR_CLIENT_OUTDATED:
+                errors["base"] = "client_outdated"
+            else:
+                errors[CONF_CODE] = "invalid_code"
+            return None
+        except ProstoCamAuthError:
+            errors[CONF_CODE] = "invalid_code"
             return None
         except Exception:  # noqa: BLE001
             LOGGER.exception("Unexpected error while pairing with ProstoCAM")
             errors["base"] = "unknown"
             return None
         token = data.get(KEY_TOKEN)
-        if not isinstance(token, str) or not token:
+        integration_id = data.get(KEY_INTEGRATION_ID)
+        if not isinstance(token, str) or not token or integration_id is None:
             LOGGER.error("ProstoCAM replied to pairing without a token")
             errors["base"] = "unknown"
             return None
-        integration_id = data.get(KEY_INTEGRATION_ID)
-        title = data.get(KEY_TITLE)
+        title = data.get(KEY_DISPLAY_NAME)
         return {
             CONF_TOKEN: token,
-            CONF_INTEGRATION_ID: str(integration_id)
-            if integration_id is not None
-            else ha_instance,
-            KEY_TITLE: title if isinstance(title, str) and title else DEFAULT_TITLE,
+            CONF_INTEGRATION_ID: str(integration_id),
+            KEY_TITLE: f"{DEFAULT_TITLE}: {title}"
+            if isinstance(title, str) and title and title != DEFAULT_TITLE
+            else DEFAULT_TITLE,
         }
 
     @staticmethod

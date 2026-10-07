@@ -27,6 +27,9 @@
     "error": {
       "invalid_code": "The code is wrong or expired. Get a new code in the ProstoCAM web account.",
       "invalid_server": "This is not a web address.",
+      "already_connected": "Home Assistant of this account is already connected with a rest_command automation. Disconnect it in the ProstoCAM web account first.",
+      "client_outdated": "ProstoCAM needs a newer version of this integration. Update it in HACS and restart Home Assistant.",
+      "too_many_attempts": "Too many attempts. Wait a minute and try again.",
       "cannot_connect": "The ProstoCAM server can not be reached. Check the internet connection and try again.",
       "unknown": "Unexpected error, see the Home Assistant log."
     },
@@ -60,10 +63,7 @@
       "options": {
         "binary_sensor": "Binary sensors (doors, motion, leaks, smoke)",
         "alarm_control_panel": "Alarm panels",
-        "lock": "Locks",
-        "siren": "Sirens",
-        "cover": "Gates, garage doors and blinds",
-        "event": "Events (doorbells, buttons)"
+        "siren": "Sirens"
       }
     },
     "device_classes": {
@@ -86,6 +86,12 @@
         "sound": "Sound",
         "problem": "Problem"
       }
+    }
+  },
+  "issues": {
+    "client_outdated": {
+      "title": "Update the ProstoCAM integration",
+      "description": "The ProstoCAM server no longer accepts this version of the integration, so sensor events are not delivered. Update ProstoCAM in HACS and restart Home Assistant; events that waited in the queue will be sent."
     }
   }
 }

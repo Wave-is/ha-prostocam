@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import aiohttp
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -24,7 +25,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
-from .conftest import BASE, TOKEN
+from .conftest import BASE, TOKEN, server_config
 
 PAIR_URL = f"{BASE}/pair"
 NEW_TOKEN = "new-token-fedcba9876543210"
@@ -35,7 +36,9 @@ def _pair_reply(integration_id: int = 42) -> dict:
         "data": {
             "token": NEW_TOKEN,
             "integration_id": integration_id,
-            "title": "ProstoCAM 900001",
+            "renewed": False,
+            "config": server_config(),
+            "display_name": "Dacha",
         }
     }
 
@@ -59,7 +62,7 @@ async def test_user_flow_pairs_with_code(
         await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "ProstoCAM 900001"
+    assert result["title"] == "ProstoCAM: Dacha"
     assert result["data"] == {
         CONF_SERVER: DEFAULT_SERVER,
         CONF_TOKEN: NEW_TOKEN,
@@ -69,7 +72,7 @@ async def test_user_flow_pairs_with_code(
     assert len(aioclient_mock.mock_calls) == 1
     sent = aioclient_mock.mock_calls[0][2]
     assert sent["code"] == "ABCD1234"
-    assert sent["instance_id"]
+    assert set(sent) == {"code", "client_version", "ha_version"}
     assert "Authorization" not in (aioclient_mock.mock_calls[0][3] or {})
 
 
@@ -248,10 +251,36 @@ async def test_options_flow(hass: HomeAssistant, config_entry: MockConfigEntry) 
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {CONF_DOMAINS: ["binary_sensor", "lock"], CONF_DEVICE_CLASSES: ["door"]},
+        {CONF_DOMAINS: ["binary_sensor", "siren"], CONF_DEVICE_CLASSES: ["door"]},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert config_entry.options == {
-        CONF_DOMAINS: ["binary_sensor", "lock"],
+        CONF_DOMAINS: ["binary_sensor", "siren"],
         CONF_DEVICE_CLASSES: ["door"],
     }
+
+
+@pytest.mark.parametrize(
+    ("reply", "error"),
+    [
+        ({"status": 409, "json": {"message": "x", "code": "already_connected"}}, "already_connected"),
+        ({"status": 426, "json": {"message": "x", "code": "client_outdated"}}, "client_outdated"),
+        ({"status": 429, "json": {"message": "x", "code": "rate_limited"}}, "too_many_attempts"),
+    ],
+)
+async def test_user_flow_server_refusals(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    reply: dict,
+    error: str,
+) -> None:
+    """Refusals the subscriber can act on get their own message."""
+    aioclient_mock.post(PAIR_URL, **reply)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: "ABCD1234"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": error}

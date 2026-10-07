@@ -65,7 +65,7 @@ def mock_server(aioclient_mock: AiohttpClientMocker) -> Callable[..., None]:
         alarm: dict[str, Any] | None = None,
         heartbeat: dict[str, Any] | None = None,
     ) -> None:
-        reply = {"data": {"enabled_entities": list(enabled)}}
+        reply = {"data": {"accepted": True, "config": server_config(enabled)}}
         aioclient_mock.post(f"{BASE}/heartbeat", **(heartbeat or {"json": reply}))
         aioclient_mock.post(f"{BASE}/entities", json=reply)
         aioclient_mock.post(f"{BASE}/events", **(events or {"json": reply}))
@@ -79,6 +79,25 @@ def calls_to(aioclient_mock: AiohttpClientMocker, path: str) -> list[tuple]:
     return [call for call in aioclient_mock.mock_calls if str(call[1]).endswith(f"/{path}")]
 
 
-def sent_events(aioclient_mock: AiohttpClientMocker, path: str = "events") -> list[dict]:
-    """All events sent to `/events` (or `/alarm`), in order."""
-    return [event for call in calls_to(aioclient_mock, path) for event in call[2]["events"]]
+def sent_events(aioclient_mock: AiohttpClientMocker) -> list[dict]:
+    """All events sent to `/events`, in order."""
+    return [event for call in calls_to(aioclient_mock, "events") for event in call[2]["events"]]
+
+
+def sent_alarms(aioclient_mock: AiohttpClientMocker) -> list[dict]:
+    """All bodies sent to `/alarm`, in order."""
+    return [call[2] for call in calls_to(aioclient_mock, "alarm")]
+
+
+def server_config(enabled: Iterable[str] = ENABLED) -> dict[str, Any]:
+    """The `config` block the server puts into every reply."""
+    return {
+        "protocol_version": 1,
+        "min_client_version": "0.1.0",
+        "heartbeat_interval_s": 60,
+        "catalog_domains": ["binary_sensor", "alarm_control_panel", "siren"],
+        "event_domains": ["binary_sensor", "alarm_control_panel", "siren"],
+        "enabled_entities": list(enabled),
+        "max_events_per_batch": 100,
+        "max_catalog_entities": 2000,
+    }

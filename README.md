@@ -39,16 +39,17 @@
 датчики і прив'язки камер залишаться.
 
 **Параметри** інтеграції (Налаштування → Пристрої та служби → ProstoCAM → Налаштувати): які типи сутностей і які класи
-бінарних датчиків показувати в кабінеті. За замовчуванням — охоронні бінарні датчики і охоронні панелі.
+бінарних датчиків показувати в кабінеті. За замовчуванням — охоронні бінарні датчики, охоронні панелі й сирени.
 
 ### Що надсилається, а що — ні
 
 Надсилається:
 
-- **перелік** сутностей обраних типів: `entity_id`, назва, тип і клас датчика, поточний стан, зона (area), виробник і модель
-  пристрою, інтеграція-джерело;
-- **зміни стану** лише тих сутностей, які ви **увімкнули в кабінеті**: було → стало і час зміни;
-- **пульс** раз на кілька хвилин: версія Home Assistant та інтеграції, довжина черги.
+- **перелік** сутностей обраних типів: `entity_id`, назва, клас датчика, зона (area), виробник і модель пристрою,
+  інтеграція-джерело;
+- **зміни стану** лише тих датчиків, які ви **увімкнули в кабінеті**: було → стало і час зміни;
+- **режим охоронних панелей** (під охороною / знято / тривога), хто його змінив (ім'я з панелі, до 16 знаків) і режим при старті;
+- **пульс** раз на хвилину: версії Home Assistant та інтеграції.
 
 Не надсилається: інші сутності й атрибути, історія, камери і зображення Home Assistant, координати, користувачі, паролі
 й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant — зв'язок лише в один бік.
@@ -88,16 +89,18 @@ If the connection is reset in the web account (for example with Reconnect), Home
 camera links stay.
 
 **Options** (Settings → Devices & services → ProstoCAM → Configure): which entity types and binary sensor classes are listed in
-the web account. By default: security binary sensors and alarm panels.
+the web account. By default: security binary sensors, alarm panels and sirens.
 
 ### What is sent and what is not
 
 Sent:
 
-- the **list** of entities of the chosen types: `entity_id`, name, domain and device class, current state, area, device
-  manufacturer and model, source integration;
-- **state changes** only of the entities you **switched on in the web account**: from → to and the time of the change;
-- a **heartbeat** every few minutes: Home Assistant and integration versions, queue length.
+- the **list** of entities of the chosen types: `entity_id`, name, device class, area, device manufacturer and model,
+  source integration;
+- **state changes** only of the sensors you **switched on in the web account**: from → to and the time of the change;
+- the **mode of alarm panels** (armed / disarmed / triggered), who changed it (the name from the panel, up to 16 characters) and
+  the mode at start;
+- a **heartbeat** every minute: Home Assistant and integration versions.
 
 Not sent: any other entity or attribute, history, Home Assistant cameras and images, locations, users, passwords and tokens
 of Home Assistant. ProstoCAM can not switch or change anything in your Home Assistant — the link is one-way.

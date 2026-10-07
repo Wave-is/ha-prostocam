@@ -19,18 +19,29 @@ class ProstoCamConnectionError(ProstoCamError):
     """The server can not be reached or is busy; the request may be retried."""
 
 
+class ProstoCamRateLimitedError(ProstoCamConnectionError):
+    """Too many requests (HTTP 429); retry later."""
+
+
 class ProstoCamAuthError(ProstoCamError):
-    """The token (or the pairing code) was rejected."""
+    """The token was rejected (HTTP 401/403)."""
+
+
+class ProstoCamOutdatedError(ProstoCamError):
+    """The server needs a newer version of the integration (HTTP 426)."""
 
 
 class ProstoCamRejectedError(ProstoCamError):
     """The server refused the request itself; retrying will not help."""
 
-    def __init__(self, status: int, code: str | None) -> None:
-        """Remember the HTTP status and the error code of the reply."""
-        super().__init__(f"HTTP {status} {code or ''}".strip())
+    def __init__(self, status: int, code: str | None, field: str | None = None) -> None:
+        """Remember the HTTP status, the error code and the refused field."""
+        super().__init__(
+            " ".join(part for part in (f"HTTP {status}", code, field) if part)
+        )
         self.status = status
         self.code = code
+        self.field = field
 
 
 def _parse_body(text: str) -> dict[str, Any]:
@@ -44,16 +55,18 @@ def _parse_body(text: str) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _error_code(body: dict[str, Any]) -> str | None:
-    """Pick the error code out of an error reply."""
+def _text(value: Any) -> str | None:
+    return str(value) if isinstance(value, (str, int)) else None
+
+
+def _error_code(body: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Pick the error code and the refused field out of an error reply."""
     error = body.get("error")
     if isinstance(error, dict):
-        code = error.get("code")
-        return str(code) if code is not None else None
-    if isinstance(error, str):
-        return error
-    code = body.get("code")
-    return str(code) if code is not None else None
+        body = error
+    elif isinstance(error, str):
+        return error, None
+    return _text(body.get("code")), _text(body.get("field"))
 
 
 class ProstoCamClient:
@@ -72,18 +85,11 @@ class ProstoCamClient:
         """Base address of the server."""
         return self._server
 
-    async def async_pair(
-        self, code: str, instance_id: str, ha_version: str
-    ) -> dict[str, Any]:
+    async def async_pair(self, code: str, ha_version: str) -> dict[str, Any]:
         """Exchange a pairing code from the ProstoCAM web account for a token."""
         return await self._async_request(
             PATH_PAIR,
-            {
-                "code": code,
-                "instance_id": instance_id,
-                "ha_version": ha_version,
-                "client_version": VERSION,
-            },
+            {"code": code, "client_version": VERSION, "ha_version": ha_version},
             auth=False,
         )
 
@@ -115,9 +121,14 @@ class ProstoCamClient:
         body = _parse_body(text)
         if status in (401, 403):
             raise ProstoCamAuthError(f"HTTP {status}")
-        if status == 429 or status >= 500:
+        if status == 426:
+            raise ProstoCamOutdatedError(f"HTTP {status}")
+        if status == 429:
+            raise ProstoCamRateLimitedError(f"HTTP {status}")
+        if status >= 500:
             raise ProstoCamConnectionError(f"HTTP {status}")
         if status >= 400:
-            raise ProstoCamRejectedError(status, _error_code(body))
+            code, field = _error_code(body)
+            raise ProstoCamRejectedError(status, code, field)
         data = body.get("data")
         return data if isinstance(data, dict) else body
