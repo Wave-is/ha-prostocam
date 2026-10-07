@@ -15,7 +15,7 @@ jobs:
     name: hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
@@ -25,5 +25,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # The brand icon is not in home-assistant/brands yet.
-          ignore: brands
+          # brands: the icon is not in home-assistant/brands yet.
+          # description, topics: repository settings, set by the owner (then drop them here).
+          ignore: brands description topics
