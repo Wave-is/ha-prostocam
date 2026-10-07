@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
 from contextlib import suppress
 from datetime import timedelta
 import hashlib
@@ -67,6 +68,7 @@ from .const import (
     HEARTBEAT_MIN,
     ISSUE_OUTDATED,
     KEY_BATTERY_LEVELS,
+    KEY_CAPABILITIES,
     KEY_CATALOG_DOMAINS,
     KEY_CONFIG,
     KEY_ENABLED,
@@ -99,6 +101,8 @@ from .const import (
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
+
+    from .cameras import ProstoCamCameras
 
 
 def _battery_level(value: Any) -> int | None:
@@ -175,6 +179,12 @@ class ProstoCamBridge:
         self._catalog_pending = False
         self._hass_started = False
         self._protocol_warned = False
+        # Protocol of the server and areas of the token (protocol 2), from `config`.
+        self.server_protocol: int | None = None
+        self.capabilities: frozenset[str] | None = None
+        self._config_listeners: list[Callable[[], None]] = []
+        # Cameras of ProstoCAM in Home Assistant (set up after the bridge).
+        self.cameras: ProstoCamCameras | None = None
         self._last_heartbeat_try: float | None = None
         self._catalog_debouncer = Debouncer(
             hass,
@@ -641,13 +651,28 @@ class ProstoCamBridge:
         if isinstance(late_after, int) and late_after >= 0:
             self.late_after = late_after
         protocol = config.get(KEY_PROTOCOL_VERSION)
-        if isinstance(protocol, int) and protocol != PROTOCOL_VERSION and not self._protocol_warned:
-            self._protocol_warned = True
-            LOGGER.warning(
-                "ProstoCAM speaks protocol %s, this integration %s; update ProstoCAM in HACS",
-                protocol,
-                PROTOCOL_VERSION,
-            )
+        changed = False
+        if isinstance(protocol, int) and not isinstance(protocol, bool):
+            if protocol > PROTOCOL_VERSION and not self._protocol_warned:
+                # A newer server: what this version knows keeps working.
+                self._protocol_warned = True
+                LOGGER.warning(
+                    "ProstoCAM speaks protocol %s, this integration %s; update ProstoCAM in HACS",
+                    protocol,
+                    PROTOCOL_VERSION,
+                )
+            changed = protocol != self.server_protocol
+            self.server_protocol = protocol
+        capabilities = _str_list(config.get(KEY_CAPABILITIES))
+        if capabilities is None and isinstance(protocol, int):
+            # Protocol 1 has no areas: the token may only send.
+            capabilities = set()
+        if capabilities is not None and frozenset(capabilities) != self.capabilities:
+            self.capabilities = frozenset(capabilities)
+            changed = True
+        if changed:
+            for listener in list(self._config_listeners):
+                listener()
         interval = config.get(KEY_HEARTBEAT_INTERVAL)
         if (
             isinstance(interval, int)
@@ -674,6 +699,27 @@ class ProstoCamBridge:
                 LOGGER.warning("ProstoCAM refused a request: %s", err)
             return False
         return True
+
+    def apply_reply(self, data: dict[str, Any]) -> None:
+        """Take the `config` of a reply read by somebody else (the camera catalog)."""
+        self._apply_server_data(data)
+
+    @callback
+    def async_add_config_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
+        """Call `listener` when the protocol or the areas of the token change."""
+        self._config_listeners.append(listener)
+
+        @callback
+        def _remove() -> None:
+            with suppress(ValueError):
+                self._config_listeners.remove(listener)
+
+        return _remove
+
+    @callback
+    def report_auth_failed(self) -> None:
+        """Another reader saw `401 token_invalid`: stop and ask for a new code."""
+        self._async_auth_failed()
 
     @callback
     def _async_auth_failed(self) -> None:
@@ -746,6 +792,10 @@ class ProstoCamBridge:
             "disabled": self.disabled,
             "late_after": self.late_after,
             "battery_levels": self.battery_levels,
+            "server_protocol": self.server_protocol,
+            "capabilities": sorted(self.capabilities)
+            if self.capabilities is not None
+            else None,
             "domains": sorted(self.domains),
             "device_classes": sorted(self.device_classes),
             "stats": dict(self.stats),

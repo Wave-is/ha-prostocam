@@ -9,7 +9,7 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "0.1.1"
+VERSION: Final = "0.2.0"
 
 DEFAULT_SERVER: Final = "https://new.prosto.cam"
 DEFAULT_TITLE: Final = "ProstoCAM"
@@ -39,7 +39,7 @@ KEY_BATTERY_LEVELS: Final = "battery_levels"
 BATTERY_ATTRIBUTES: Final = ("battery_level", "battery")
 KEY_PROTOCOL_VERSION: Final = "protocol_version"
 KEY_RESULTS: Final = "results"
-PROTOCOL_VERSION: Final = 1
+PROTOCOL_VERSION: Final = 2
 
 # Server error codes the integration tells apart.
 ERROR_ALREADY_CONNECTED: Final = "already_connected"
@@ -121,3 +121,43 @@ MAX_QUEUED_S: Final = 86400
 STORAGE_VERSION: Final = 1
 SAVE_DELAY: Final = 10  # seconds
 MAX_USER_LENGTH: Final = 16
+
+# ---------------------------------------------------------------- protocol 2
+# Cameras of ProstoCAM in Home Assistant (contract §8–§9).
+KEY_CAPABILITIES: Final = "capabilities"
+SCOPE_CAMERAS: Final = "cameras:read"
+SCOPE_EVENTS: Final = "events:read"
+SCOPE_LIVE: Final = "live:read"
+CAMERA_SCOPES: Final = (SCOPE_CAMERAS, SCOPE_EVENTS, SCOPE_LIVE)
+CAMERAS_PROTOCOL: Final = 2
+
+PATH_CAMERAS: Final = "/cameras"
+PATH_STREAM: Final = "/v2/stream"  # from the server root, not under API_PREFIX
+
+ERROR_SCOPE_MISSING: Final = "scope_missing"
+ERROR_STREAM_SCOPE_MISSING: Final = "stream_scope_missing"
+SCOPE_ERRORS: Final = frozenset({ERROR_SCOPE_MISSING, ERROR_STREAM_SCOPE_MISSING})
+
+ISSUE_MISSING_ACCESS: Final = "missing_access"
+
+CATALOG_INTERVAL: Final = 300  # seconds; the server asks for at most one in 5 minutes
+SNAPSHOT_CACHE: Final = 10  # seconds
+LIVE_URL_MAX_AGE: Final = 240  # seconds; the start token lives 300 s
+STREAM_REFRESH_MIN: Final = 30  # seconds between two fresh addresses for a broken stream
+DETECTION_RESET: Final = 30  # seconds a motion/person/vehicle sensor stays on
+SSE_READ_TIMEOUT: Final = 45  # seconds without a byte (pulse every 15 s) = reconnect
+SSE_RETRY_MIN: Final = 3  # seconds
+SSE_RETRY_MAX: Final = 300  # seconds
+SSE_SAVE_DELAY: Final = 30  # seconds
+
+EVENT_TYPES: Final = ["motion", "person", "vehicle", "animal", "other", "test"]
+# Alarm classes of ProstoCAM that are not an event type of their own.
+EVENT_TYPE_OF_CLASS: Final = {
+    "motion": "motion",
+    "person": "person",
+    "vehicle": "vehicle",
+    "animal": "animal",
+}
+DETECTIONS: Final = ("motion", "person", "vehicle")
+
+PLATFORMS: Final = ["camera", "binary_sensor", "event", "image"]

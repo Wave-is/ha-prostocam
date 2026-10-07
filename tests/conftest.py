@@ -64,8 +64,9 @@ def mock_server(aioclient_mock: AiohttpClientMocker) -> Callable[..., None]:
         events: dict[str, Any] | None = None,
         alarm: dict[str, Any] | None = None,
         heartbeat: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
-        reply = {"data": {"accepted": True, "config": server_config(enabled)}}
+        reply = {"data": {"accepted": True, "config": config or server_config(enabled)}}
         aioclient_mock.post(f"{BASE}/heartbeat", **(heartbeat or {"json": reply}))
         aioclient_mock.post(f"{BASE}/entities", json=reply)
         aioclient_mock.post(f"{BASE}/events", **(events or {"json": reply}))

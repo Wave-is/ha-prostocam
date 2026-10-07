@@ -93,6 +93,42 @@
     "client_outdated": {
       "title": "Обновите интеграцию ProstoCAM",
       "description": "Сервер ProstoCAM больше не принимает эту версию интеграции, поэтому события датчиков не доставляются. Обновите ProstoCAM в HACS и перезапустите Home Assistant; события, ждавшие в очереди, будут отправлены."
+    },
+    "missing_access": {
+      "title": "Дайте Home Assistant доступ к камерам ProstoCAM",
+      "description": "У подключения ProstoCAM этого Home Assistant нет доступа к: {scopes}. Home Assistant показывает только то, что разрешил абонент: cameras:read — камеры и кадр, events:read — тревоги движения, человека и транспорта, live:read — эфир.\n\nВ кабинете ProstoCAM откройте «Умный дом» → Home Assistant → «Что увидит Home Assistant», отметьте нужное и нажмите «Сохранить доступ». Новый код не нужен: Home Assistant подхватит изменение в течение минуты."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "person": {
+        "name": "Человек"
+      },
+      "vehicle": {
+        "name": "Транспорт"
+      }
+    },
+    "event": {
+      "alarm": {
+        "name": "Тревога",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "motion": "Движение",
+              "person": "Человек",
+              "vehicle": "Транспорт",
+              "animal": "Животное",
+              "other": "Другое",
+              "test": "Тестовая тревога"
+            }
+          }
+        }
+      }
+    },
+    "image": {
+      "last_alarm": {
+        "name": "Последний кадр тревоги"
+      }
     }
   }
 }

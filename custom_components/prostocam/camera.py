@@ -1,0 +1,142 @@
+"""Cameras of ProstoCAM: live video through the `stream` component, snapshots."""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.stream import Stream
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from . import ProstoCamConfigEntry
+from .cameras import ProstoCamCameras, async_add_camera_entities
+from .const import (
+    DEFAULT_TITLE,
+    LIVE_URL_MAX_AGE,
+    LOGGER,
+    SCOPE_CAMERAS,
+    SCOPE_LIVE,
+    STREAM_REFRESH_MIN,
+)
+from .entity import ProstoCamCameraEntity
+
+PARALLEL_UPDATES = 0
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ProstoCamConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Add a camera entity for every camera Home Assistant may see."""
+    hub = entry.runtime_data.cameras
+    if hub is None or not hub.has(SCOPE_CAMERAS):
+        return
+    async_add_camera_entities(
+        hub, entry, lambda camera_id: [ProstoCamCamera(hub, camera_id)], async_add_entities
+    )
+
+
+class ProstoCamCamera(ProstoCamCameraEntity, Camera):
+    """One ProstoCAM camera.
+
+    Every start of a stream asks the server for a fresh live address (its token
+    lives 5 minutes; a started session lives on by the cookie of the media node).
+    WebRTC providers (go2rtc) are not offered: go2rtc re-reads the HLS playlist
+    without cookies and loses the stream after 5 minutes (contract §10.3).
+    """
+
+    _attr_name = None
+
+    def __init__(self, hub: ProstoCamCameras, camera_id: int) -> None:
+        """Create the camera entity."""
+        Camera.__init__(self)
+        self._init_camera(hub, camera_id, "camera")
+        item = hub.cameras.get(camera_id, {})
+        features = item.get("features")
+        live_feature = features.get("live") if isinstance(features, dict) else None
+        if hub.has(SCOPE_LIVE) and live_feature is not False:
+            self._attr_supported_features = CameraEntityFeature.STREAM
+        else:
+            self._attr_supported_features = CameraEntityFeature(0)
+        self._attr_brand = item.get("manufacturer") or DEFAULT_TITLE
+        self._attr_model = item.get("model")
+        self._source_at: float | None = None
+        self._refresh_at: float | None = None
+
+    @property
+    def is_streaming(self) -> bool:
+        """The camera publishes its video now."""
+        return bool(self.camera_state.streaming)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Place and security zone of the camera in ProstoCAM."""
+        item = self.hub.cameras.get(self.camera_id, {})
+        features = item.get("features")
+        return {
+            "location": item.get("location"),
+            "zone": item.get("zone"),
+            "ai_mode": features.get("ai_mode") if isinstance(features, dict) else None,
+            "camera_id": self.camera_id,
+        }
+
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """The frame "now" (cached 10 s)."""
+        return await self.hub.async_snapshot(self.camera_id)
+
+    async def stream_source(self) -> str | None:
+        """A fresh live address for this start; never cached."""
+        url = await self.hub.async_live_url(self.camera_id)
+        if url is not None:
+            self._source_at = time.monotonic()
+        return url
+
+    async def async_refresh_providers(self, *args: Any, **kwargs: Any) -> None:
+        """Offer HLS only: no WebRTC provider, and no live start just to probe one."""
+        return
+
+    async def async_create_stream(self) -> Stream | None:
+        """Reuse the stream, but give a stopped or broken one a fresh address."""
+        existing = self.stream
+        stream = await super().async_create_stream()
+        if stream is None:
+            return None
+        stream.set_update_callback(self._async_stream_updated)
+        if existing is None:
+            return stream  # just created from a fresh address
+        thread = getattr(stream, "_thread", None)
+        running = thread is not None and thread.is_alive()
+        if running and stream.available:
+            return stream
+        if (
+            self._source_at is not None
+            and time.monotonic() - self._source_at < LIVE_URL_MAX_AGE
+        ):
+            return stream
+        await self._async_refresh_source(stream)
+        return stream
+
+    @callback
+    def _async_stream_updated(self) -> None:
+        """The stream worker failed: its address may have expired."""
+        self.async_write_ha_state()
+        stream = self.stream
+        if stream is None or stream.available:
+            return
+        now = time.monotonic()
+        if self._refresh_at is not None and now - self._refresh_at < STREAM_REFRESH_MIN:
+            return
+        self._refresh_at = now
+        self.hass.async_create_task(self._async_refresh_source(stream))
+
+    async def _async_refresh_source(self, stream: Stream) -> None:
+        url = await self.stream_source()
+        if url is None or stream is not self.stream:
+            return
+        LOGGER.debug("ProstoCAM camera %s: fresh live address", self.camera_id)
+        stream.update_source(url)

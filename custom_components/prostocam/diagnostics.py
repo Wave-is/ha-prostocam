@@ -11,6 +11,8 @@ from . import ProstoCamConfigEntry
 from .const import CONF_TOKEN
 
 TO_REDACT = {CONF_TOKEN}
+# Never in camera diagnostics either (a safety net: they are not collected).
+CAMERA_REDACT = {CONF_TOKEN, "hls_url", "live_key", "stream_url_template", "links", "explanation"}
 
 
 async def async_get_config_entry_diagnostics(
@@ -25,4 +27,7 @@ async def async_get_config_entry_diagnostics(
             "options": dict(entry.options),
         },
         "bridge": bridge.diagnostics() if bridge is not None else None,
+        "cameras": async_redact_data(bridge.cameras.diagnostics(), CAMERA_REDACT)
+        if bridge is not None and bridge.cameras is not None
+        else None,
     }

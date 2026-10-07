@@ -16,13 +16,27 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements_test.txt
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements_test.txt
-          pip freeze | grep -iE '^(homeassistant|pytest-homeassistant-custom-component)=='
+          set -o pipefail
+          pip install -r requirements_test.txt 2>&1 | tee pip.log
+          versions="$(pip freeze | grep -iE '^(homeassistant|pytest-homeassistant-custom-component)==' | tr '\n' ' ')"
+          echo "$versions"
+          echo "::notice title=Versions::$versions"
       - name: Run
-        run: pytest -v
+        run: |
+          set -o pipefail
+          pytest -v 2>&1 | tee pytest.log
+      - name: Failure summary
+        if: failure()
+        run: |
+          # Annotations are readable without signing in; the log is not.
+          if [ ! -f pytest.log ]; then cp pip.log pytest.log 2>/dev/null || exit 0; fi
+          grep -E '^(FAILED|ERROR)|Error|error:' pytest.log | head -n 40 > summary.txt || true
+          tail -n 120 pytest.log >> summary.txt
+          message="$(sed -e 's/%/%25/g' summary.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+          echo "::error title=pytest tail::${message}"

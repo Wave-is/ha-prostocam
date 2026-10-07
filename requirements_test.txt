@@ -1,2 +1,4 @@
 pytest-homeassistant-custom-component
 pytest-github-actions-annotate-failures
+# camera imports turbojpeg at load (its own requirement, not installed by the test package)
+PyTurboJPEG

@@ -55,9 +55,32 @@
 перезапуск Home Assistant. Кожна подія каже серверу, скільки чекала: запізніла подія лише пишеться в журнал і не будить камери.
 
 Не надсилається: інші сутності й атрибути, історія, камери і зображення Home Assistant, координати, користувачі, паролі
-й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant — зв'язок лише в один бік.
+й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant.
 
 Токен підключення зберігається в Home Assistant і не потрапляє в діагностику.
+
+### Камери ProstoCAM у Home Assistant (з 0.2)
+
+Камери, які ви дозволили, з'являються в Home Assistant самі — кожна окремим пристроєм (назва, виробник, модель, місце):
+
+- **камера** — ефір у картці (HLS через вбудований `stream`) і кадр «зараз» (оновлюється не частіше разу на 10 с);
+- **Рух**, **Людина**, **Транспорт** — бінарні датчики, вмикаються на 30 с після тривоги камери цього виду;
+- **Тривога** — подія (`event`) на кожну тривогу: тип `motion` / `person` / `vehicle` / `animal` / `other` / `test`,
+  в атрибутах — клас від ШІ, впевненість, номер події, час, `test`; зручно для автоматизацій;
+- **Останній кадр тривоги** — зображення (`image`): кадр, знятий у момент тривоги;
+- **Зв'язок** — чи камера на зв'язку з ProstoCAM (діагностичний датчик).
+
+Події приходять одразу: Home Assistant сам тримає з'єднання з ProstoCAM (без відкритих портів), після обриву
+перепідключається й дочитує пропущене.
+
+**Як вибрати камери.** У кабінеті ProstoCAM: **Розумний дім → Home Assistant → «Що бачитиме Home Assistant»** — позначте
+«Камери й кадр», «Події», «Ефір» і «Усі мої камери» або «Лише вибрані» (список камер), натисніть **«Зберегти доступ»**.
+Нового коду не треба: протягом хвилини Home Assistant сам додасть або прибере камери й датчики. Чого не дозволено —
+того в Home Assistant не буде, а в **Налаштування → Ремонт** з'явиться підказка, де дати доступ. Пам'ятайте: камери
+побачить кожен, хто має доступ до вашого Home Assistant.
+
+Ефір відкривається у звичайній картці камери (HLS, затримка кілька секунд). WebRTC (go2rtc) для цих камер поки не
+пропонується — він обривав би ефір через 5 хвилин.
 
 ---
 
@@ -106,9 +129,33 @@ Sent:
 - a **heartbeat** every minute: Home Assistant and integration versions.
 
 Not sent: any other entity or attribute, history, Home Assistant cameras and images, locations, users, passwords and tokens
-of Home Assistant. ProstoCAM can not switch or change anything in your Home Assistant — the link is one-way.
+of Home Assistant. ProstoCAM can not switch or change anything in your Home Assistant.
 
 The connection token is stored in Home Assistant and is redacted from diagnostics.
+
+### ProstoCAM cameras in Home Assistant (since 0.2)
+
+The cameras you allowed appear in Home Assistant by themselves, each as a device (name, manufacturer, model, place):
+
+- **camera** — live video in the camera card (HLS through the built-in `stream`) and the snapshot "now" (refreshed at most
+  every 10 s);
+- **Motion**, **Person**, **Vehicle** — binary sensors, on for 30 s after an alarm of the camera of that kind;
+- **Alarm** — an `event` entity for every alarm: type `motion` / `person` / `vehicle` / `animal` / `other` / `test`, the
+  attributes carry the AI class, confidence, event number, time and `test`; handy for automations;
+- **Last alarm frame** — an `image` entity: the frame taken when the alarm arrived;
+- **Connectivity** — whether the camera is online for ProstoCAM (diagnostic sensor).
+
+Events arrive at once: Home Assistant keeps its own connection to ProstoCAM (no open ports), reconnects after an outage
+and reads what it missed.
+
+**Choosing the cameras.** In the ProstoCAM web account: **Smart Home → Home Assistant → "What Home Assistant will see"** —
+tick cameras and snapshots, events, live video, and "All my cameras" or only the chosen ones, then press **Save access**.
+No new code is needed: within a minute Home Assistant adds or removes the cameras and sensors itself. What is not allowed
+does not appear, and **Settings → Repairs** says where to give the access. Remember: everyone with access to your Home
+Assistant sees these cameras.
+
+Live video opens in the usual camera card (HLS, a few seconds of delay). WebRTC (go2rtc) is not offered for these cameras
+yet — it would cut the stream after 5 minutes.
 
 ### Reliability
 

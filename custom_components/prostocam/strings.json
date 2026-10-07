@@ -93,6 +93,42 @@
     "client_outdated": {
       "title": "Update the ProstoCAM integration",
       "description": "The ProstoCAM server no longer accepts this version of the integration, so sensor events are not delivered. Update ProstoCAM in HACS and restart Home Assistant; events that waited in the queue will be sent."
+    },
+    "missing_access": {
+      "title": "Give Home Assistant access to your ProstoCAM cameras",
+      "description": "The ProstoCAM connection of this Home Assistant has no access to: {scopes}. Home Assistant shows only what the subscriber allowed: cameras:read — cameras and snapshots, events:read — motion, person and vehicle alarms, live:read — live video.\n\nIn the ProstoCAM web account open Smart Home → Home Assistant → \"What Home Assistant will see\", tick what it may see and press \"Save access\". No new code is needed: Home Assistant picks the change up within a minute."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "person": {
+        "name": "Person"
+      },
+      "vehicle": {
+        "name": "Vehicle"
+      }
+    },
+    "event": {
+      "alarm": {
+        "name": "Alarm",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "motion": "Motion",
+              "person": "Person",
+              "vehicle": "Vehicle",
+              "animal": "Animal",
+              "other": "Other",
+              "test": "Test alarm"
+            }
+          }
+        }
+      }
+    },
+    "image": {
+      "last_alarm": {
+        "name": "Last alarm frame"
+      }
     }
   }
 }
