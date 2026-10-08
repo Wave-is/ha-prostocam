@@ -22,6 +22,7 @@ Tokens, live addresses and the live key never reach the log or diagnostics.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -59,15 +60,25 @@ from .const import (
     CAMERA_SCOPES,
     CAMERAS_PROTOCOL,
     CATALOG_INTERVAL,
+    CONTROL_PROTOCOL,
+    CONTROL_SCOPES,
     DEFAULT_TITLE,
     DETECTION_RESET,
     DETECTIONS,
     DOMAIN,
+    ERROR_FRAME_MISSING,
+    EVENT_ALARM,
     EVENT_TYPE_OF_CLASS,
+    FRAME_CACHE_SIZE,
+    FRAME_RETRY,
     ISSUE_MISSING_ACCESS,
     LOGGER,
     PATH_CAMERAS,
     RATE_LIMIT_PAUSE,
+    SCOPE_ACCOUNT,
+    SCOPE_ACTIONS,
+    SCOPE_ARCHIVE,
+    SCOPE_ARMING,
     SCOPE_CAMERAS,
     SCOPE_EVENTS,
     SCOPE_LIVE,
@@ -76,6 +87,7 @@ from .const import (
     SSE_RETRY_MIN,
     SSE_SAVE_DELAY,
     STORAGE_VERSION,
+    VIEW_EVENT_SNAPSHOT,
 )
 from .sse import SseEvent, SseParser
 
@@ -83,6 +95,7 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
     from .bridge import ProstoCamBridge
+    from .control import ProstoCamControl
 
 # Reasons of `session.closed` after which the channel is opened again at once.
 RECONNECT_AT_ONCE = frozenset({"token_expired", "server_restart"})
@@ -122,6 +135,18 @@ class CameraState:
     alarm_image: bytes | None = None
     alarm_image_type: str = "image/jpeg"
     alarm_image_at: datetime | None = None
+    # Protocol 3: whose frame the alarm image is (`event` or `now`) and of which event.
+    alarm_image_source: str | None = None
+    alarm_event_id: int | None = None
+    # The last alarm event of the camera (for "Check with AI" and "Deter").
+    last_event_id: int | None = None
+    # Mute of the alarms of the camera (`actions:write`).
+    muted: bool | None = None
+    muted_until: str | None = None
+    mute_choice: str | None = None
+    # Deterrence outputs of the device; None = not asked yet.
+    deter_capable: bool | None = None
+    deter_actions: list[str] = field(default_factory=list)
     snapshot: bytes | None = None
     snapshot_type: str = "image/jpeg"
     snapshot_mono: float | None = None
@@ -180,6 +205,10 @@ class ProstoCamCameras:
         self._events_task: asyncio.Task[None] | None = None
         self._image_tasks: set[asyncio.Task[None]] = set()
         self._backoff = 0.0
+        # Protocol 3: arming, buttons and money (set up right after this hub).
+        self.control: ProstoCamControl | None = None
+        # Frames of events do not change: a few stay in memory for the media browser.
+        self._frames: OrderedDict[int, tuple[bytes, str]] = OrderedDict()
 
     # ------------------------------------------------------------- signals
 
@@ -217,16 +246,46 @@ class ProstoCamCameras:
         )
 
     @property
+    def control_enabled(self) -> bool:
+        """The server speaks protocol 3: media, arming, buttons and money."""
+        return self.enabled and self.protocol is not None and self.protocol >= CONTROL_PROTOCOL
+
+    def has_control(self, scope: str) -> bool:
+        """Whether the token may use an area of protocol 3 now."""
+        return self.control_enabled and self.has(scope)
+
+    @property
     def missing_scopes(self) -> list[str]:
-        """Camera areas the subscriber did not give Home Assistant."""
+        """Areas the subscriber did not give Home Assistant (of the server's protocol)."""
         if not self.enabled:
             return []
-        return [scope for scope in CAMERA_SCOPES if not self.has(scope)]
+        scopes = list(CAMERA_SCOPES)
+        if self.control_enabled:
+            scopes += CONTROL_SCOPES
+        return [scope for scope in scopes if not self.has(scope)]
 
     @property
     def platforms_needed(self) -> bool:
-        """Entities exist only when the catalog may be read."""
-        return self.has(SCOPE_CAMERAS)
+        """Entities exist only when the catalog, the arming or the account may be read."""
+        return (
+            self.has(SCOPE_CAMERAS)
+            or self.has_control(SCOPE_ARMING)
+            or self.has_control(SCOPE_ACCOUNT)
+        )
+
+    @property
+    def camera_actions(self) -> bool:
+        """Buttons and mute of the cameras (`actions:write` and the catalog)."""
+        return self.has(SCOPE_CAMERAS) and self.has_control(SCOPE_ACTIONS)
+
+    def camera_name(self, camera_id: int) -> str:
+        """The name of a camera as the subscriber called it."""
+        item = self.cameras.get(camera_id, {})
+        return _str(item.get("name")) or f"{DEFAULT_TITLE} {camera_id}"
+
+    def snapshot_path(self, event_id: int) -> str:
+        """Path of the frame of an event through Home Assistant (needs a login or a signature)."""
+        return VIEW_EVENT_SNAPSHOT.format(entry_id=self.entry.entry_id, event_id=event_id)
 
     # ----------------------------------------------------------- life cycle
 
@@ -294,13 +353,20 @@ class ProstoCamCameras:
         if capabilities is None:
             return
         now_enabled = protocol is not None and protocol >= CAMERAS_PROTOCOL
-        if now_enabled == self.enabled and (
-            not now_enabled or capabilities == self.capabilities
+        now_control = now_enabled and protocol is not None and protocol >= CONTROL_PROTOCOL
+        if (
+            now_enabled == self.enabled
+            and now_control == self.control_enabled
+            and (not now_enabled or capabilities == self.capabilities)
         ):
             return
         LOGGER.info("ProstoCAM changed what Home Assistant may see; reloading")
         self._reload_scheduled = True
         self.hass.config_entries.async_schedule_reload(self.entry.entry_id)
+
+    def deny(self, scope: str, err: ProstoCamScopeError) -> None:
+        """The server refused an area `capabilities` listed: no more requests of it."""
+        self._deny(scope, err)
 
     def _deny(self, scope: str, err: ProstoCamScopeError) -> None:
         if scope not in self.denied:
@@ -376,6 +442,9 @@ class ProstoCamCameras:
             self._update_device(camera_id)
             async_dispatcher_send(self.hass, self.signal_update(camera_id))
         self._remove_devices(keep=set(cameras))
+        if new_ids and self.control is not None and self.camera_actions:
+            # Which buttons a camera gets depends on its outputs: ask before adding it.
+            await self.control.async_refresh_cameras(new_ids)
         if new_ids:
             async_dispatcher_send(self.hass, self.signal_new, new_ids)
         if isinstance(data.get("config"), dict):
@@ -458,9 +527,21 @@ class ProstoCamCameras:
             keys += ["camera", "connectivity"]
             if self.has(SCOPE_EVENTS):
                 keys += [*DETECTIONS, "alarm", "last_alarm"]
-        return {
+        if self.camera_actions:
+            keys += ["test_alarm", "ai_check", "do_not_disturb"]
+        expected = {
             self.unique_id(camera_id, key) for camera_id in self.cameras for key in keys
         }
+        if self.camera_actions:
+            expected |= {
+                self.unique_id(camera_id, "deter")
+                for camera_id in self.cameras
+                # Unknown (the server was not asked yet) keeps the button.
+                if self.states.get(camera_id, CameraState()).deter_capable is not False
+            }
+        if self.control is not None:
+            expected |= self.control.expected_unique_ids()
+        return expected
 
     def unique_id(self, camera_id: int, key: str) -> str:
         """Unique id of one entity of a camera."""
@@ -643,7 +724,10 @@ class ProstoCamCameras:
                 self.hass, self.async_refresh_catalog(), "prostocam_resync"
             )
         elif event.event == "alarm":
-            self._handle_alarm(data.get("alarm"))
+            self._handle_alarm(data.get("alarm"), data.get("links"))
+        elif event.event == "arming.changed":
+            if self.control is not None:
+                self.control.handle_arming_changed(data.get("arming"))
         elif event.event == "camera.status":
             self._handle_status(data.get("camera"))
         elif event.event.startswith("incident."):
@@ -657,7 +741,7 @@ class ProstoCamCameras:
             )
         return None
 
-    def _handle_alarm(self, alarm: Any) -> None:
+    def _handle_alarm(self, alarm: Any, links: Any = None) -> None:
         if not isinstance(alarm, dict):
             return
         camera_id = self.camera_for(alarm.get("camera_id"))
@@ -669,29 +753,64 @@ class ProstoCamCameras:
         test = alarm.get("test") is True
         event_type = "test" if test else EVENT_TYPE_OF_CLASS.get(classification, "other")
         confidence = alarm.get("confidence")
+        event_id = _int(alarm.get("event_id"))
         attributes: dict[str, Any] = {
             "classification": classification,
             "confidence": confidence if isinstance(confidence, (int, float)) else None,
-            "event_id": _int(alarm.get("event_id")),
+            "event_id": event_id,
             "alarm_id": _int(alarm.get("id")),
             "created_at": _str(alarm.get("created_at")),
             "test": test,
         }
+        # Protocol 3: the frame of the event itself (links come only on our channel).
+        event_frame = (
+            self.control_enabled
+            and event_id is not None
+            and (not isinstance(links, dict) or links.get("snapshot") is not None)
+        )
+        if event_frame and event_id is not None:
+            attributes["snapshot"] = self.snapshot_path(event_id)
+        if self.has_control(SCOPE_ARCHIVE) and event_id is not None:
+            attributes["media_content_id"] = (
+                f"media-source://{DOMAIN}/{self.entry.entry_id}/{camera_id}/event/{event_id}"
+            )
         if state.incident is not None:
             attributes.update(
                 {f"incident_{key}": value for key, value in state.incident.items()}
             )
         state.last_alarm = attributes
+        if event_id is not None:
+            state.last_event_id = event_id
         async_dispatcher_send(self.hass, self.signal_alarm(camera_id), event_type, attributes)
         self._detect(camera_id, "motion")
         if classification in ("person", "vehicle"):
             self._detect(camera_id, classification)
         if self.has(SCOPE_CAMERAS):
             task = self.entry.async_create_task(
-                self.hass, self._async_alarm_image(camera_id), "prostocam_alarm_image"
+                self.hass,
+                self._async_alarm_image(camera_id, event_id if event_frame else None),
+                "prostocam_alarm_image",
             )
             self._image_tasks.add(task)
             task.add_done_callback(self._image_tasks.discard)
+        if self.control is not None:
+            self.control.note_alarm(test=test)
+        # For automations and the notification blueprint: at once, the frame
+        # is read by the phone through Home Assistant when it shows the message.
+        device = dr.async_get(self.hass).async_get_device(
+            identifiers={(DOMAIN, self.device_identifier(camera_id))}
+        )
+        self.hass.bus.async_fire(
+            EVENT_ALARM,
+            {
+                "entry_id": self.entry.entry_id,
+                "camera_id": camera_id,
+                "camera_name": self.camera_name(camera_id),
+                "device_id": device.id if device is not None else None,
+                "event_type": event_type,
+                **attributes,
+            },
+        )
         async_dispatcher_send(self.hass, self.signal_update(camera_id))
 
     def _detect(self, camera_id: int, kind: str) -> None:
@@ -708,16 +827,65 @@ class ProstoCamCameras:
 
         state.reset_unsubs[kind] = async_call_later(self.hass, DETECTION_RESET, _reset)
 
-    async def _async_alarm_image(self, camera_id: int) -> None:
-        """The frame at the moment of the alarm (v0.2: the snapshot "now")."""
-        content = await self.async_snapshot(camera_id, fresh=True)
+    async def _async_alarm_image(self, camera_id: int, event_id: int | None) -> None:
+        """The frame of the alarm: the saved frame of the event (protocol 3).
+
+        A server of protocol 2, or an event without a saved frame, gives the
+        snapshot "now" instead (the attribute `frame` of the image says which).
+        """
+        frame: tuple[bytes, str] | None = None
+        if event_id is not None:
+            frame = await self.async_event_image(event_id)
+            if frame is None and not self._stopped:
+                # The frame may be still on its way to the archive.
+                await asyncio.sleep(FRAME_RETRY)
+                frame = await self.async_event_image(event_id)
+        source = "event"
+        if frame is None:
+            content = await self.async_snapshot(camera_id, fresh=True)
+            state = self.states.get(camera_id)
+            if content is None or state is None:
+                return
+            frame = (content, state.snapshot_type)
+            source = "now"
         state = self.states.get(camera_id)
-        if content is None or state is None:
+        if state is None:
             return
-        state.alarm_image = content
-        state.alarm_image_type = state.snapshot_type
+        state.alarm_image, state.alarm_image_type = frame
         state.alarm_image_at = dt_util.utcnow()
+        state.alarm_image_source = source
+        state.alarm_event_id = event_id
         async_dispatcher_send(self.hass, self.signal_update(camera_id))
+
+    async def async_event_image(self, event_id: int) -> tuple[bytes, str] | None:
+        """The saved frame of an event (`events:read`); None when there is none."""
+        if (cached := self._frames.get(event_id)) is not None:
+            self._frames.move_to_end(event_id)
+            return cached
+        if not self.has(SCOPE_EVENTS) or self.bridge.auth_failed:
+            return None
+        try:
+            content, content_type = await self.client.async_get_image(
+                f"/events/{event_id}/snapshot"
+            )
+        except ProstoCamScopeError as err:
+            self._deny(SCOPE_EVENTS, err)
+            return None
+        except ProstoCamAuthError:
+            self.bridge.report_auth_failed()
+            return None
+        except ProstoCamError as err:
+            if getattr(err, "code", None) != ERROR_FRAME_MISSING:
+                self.stats["snapshot_errors"] += 1
+            LOGGER.debug("ProstoCAM event %s: no frame (%s)", event_id, err)
+            return None
+        if not content:
+            return None
+        self.stats["event_frames"] = self.stats.get("event_frames", 0) + 1
+        self._frames[event_id] = (content, content_type)
+        while len(self._frames) > FRAME_CACHE_SIZE:
+            self._frames.popitem(last=False)
+        return content, content_type
 
     def _handle_status(self, camera: Any) -> None:
         if not isinstance(camera, dict):
@@ -798,6 +966,7 @@ class ProstoCamCameras:
                 for camera_id, item in sorted(self.cameras.items())
             ],
             "stats": dict(self.stats),
+            "control": self.control.diagnostics() if self.control is not None else None,
         }
 
     def _state_diagnostics(self, camera_id: int) -> dict[str, Any] | None:
@@ -815,6 +984,13 @@ class ProstoCamCameras:
             "alarm_image_at": state.alarm_image_at.isoformat()
             if state.alarm_image_at
             else None,
+            "alarm_image_source": state.alarm_image_source,
+            "alarm_event_id": state.alarm_event_id,
+            "last_event_id": state.last_event_id,
+            "muted": state.muted,
+            "muted_until": state.muted_until,
+            "deter_capable": state.deter_capable,
+            "deter_actions": list(state.deter_actions),
             "snapshot_cached": state.snapshot is not None,
         }
 

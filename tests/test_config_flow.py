@@ -259,6 +259,7 @@ async def test_options_flow(hass: HomeAssistant, config_entry: MockConfigEntry) 
     assert config_entry.options == {
         CONF_DOMAINS: ["binary_sensor", "siren"],
         CONF_DEVICE_CLASSES: ["door"],
+        "arming_sync": False,
     }
 
 

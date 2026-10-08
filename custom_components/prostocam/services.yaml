@@ -1,0 +1,64 @@
+mute:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          filter:
+            integration: prostocam
+    minutes:
+      required: true
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+
+test_alarm:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          filter:
+            integration: prostocam
+
+verify_ai:
+  fields:
+    device_id:
+      selector:
+        device:
+          filter:
+            integration: prostocam
+    event_id:
+      selector:
+        number:
+          min: 1
+          max: 9999999999
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: prostocam
+    spend_credit:
+      required: true
+      default: false
+      selector:
+        boolean:
+
+arm_anyway:
+  fields:
+    state:
+      required: true
+      selector:
+        select:
+          options:
+            - armed_home
+            - armed_night
+            - armed_away
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: prostocam

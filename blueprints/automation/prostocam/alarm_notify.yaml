@@ -1,0 +1,105 @@
+blueprint:
+  name: "ProstoCAM: тривога з кадром і текстом ШІ"
+  description: >-
+    Надсилає в застосунок Home Assistant (Companion) повідомлення про тривогу камери ProstoCAM
+    одразу, з кадром самої події. Якщо потім розбір ШІ («Перевірити ШІ») дасть текст, те саме
+    повідомлення оновлюється текстом ШІ. Кадр іде через ваш Home Assistant: токен ProstoCAM
+    телефон не бачить.
+
+    Sends an alarm of a ProstoCAM camera to the Home Assistant companion app at once, with the
+    frame of the event itself; an AI check result later updates the same notification.
+  domain: automation
+  source_url: https://github.com/Wave-is/ha-prostocam/blob/main/blueprints/automation/prostocam/alarm_notify.yaml
+  input:
+    notify_device:
+      name: Телефон / Phone
+      description: Пристрій із застосунком Home Assistant.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    cameras:
+      name: Камери / Cameras
+      description: Порожньо — усі камери ProstoCAM.
+      default: []
+      selector:
+        device:
+          multiple: true
+          filter:
+            - integration: prostocam
+    event_types:
+      name: Види тривог / Alarm types
+      default: [person, vehicle, animal, motion, other]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Людина / Person
+              value: person
+            - label: Транспорт / Vehicle
+              value: vehicle
+            - label: Тварина / Animal
+              value: animal
+            - label: Рух / Motion
+              value: motion
+            - label: Інше / Other
+              value: other
+            - label: Тестова тривога / Test alarm
+              value: test
+    ai_followup:
+      name: Текст ШІ / AI text
+      description: Оновити повідомлення текстом розбору ШІ, коли він буде.
+      default: true
+      selector:
+        boolean:
+
+mode: queued
+max: 20
+
+triggers:
+  - trigger: event
+    event_type: prostocam_alarm
+    id: alarm
+  - trigger: event
+    event_type: prostocam_ai_verdict
+    id: verdict
+
+variables:
+  notify_device: !input notify_device
+  cameras: !input cameras
+  event_types: !input event_types
+  ai_followup: !input ai_followup
+  event: "{{ trigger.event.data }}"
+  words:
+    person: Людина
+    vehicle: Транспорт
+    animal: Тварина
+    motion: Рух
+    other: Подія
+    test: Тестова тривога
+  notify_service: "notify.mobile_app_{{ device_attr(notify_device, 'name') | slugify }}"
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ (cameras | length == 0 or event.device_id in cameras)
+         and ((trigger.id == 'alarm' and event.event_type in event_types)
+              or (trigger.id == 'verdict' and ai_followup and (event.words or event.phrase))) }}
+
+actions:
+  - variables:
+      title: "📷 {{ event.camera_name }}"
+      message: >-
+        {% if trigger.id == 'verdict' %}ШІ: {{ event.words or event.phrase }}
+        {%- else %}{{ words.get(event.event_type, event.classification) }}
+        {%- if event.confidence %} · {{ (event.confidence * 100) | round }} %{% endif %}
+        {%- endif %}
+      payload: >-
+        {% set d = {'tag': 'prostocam-' ~ event.event_id, 'group': 'prostocam'} %}
+        {% if event.snapshot %}{% set d = dict(d, image=event.snapshot) %}{% endif %}
+        {{ d }}
+  - action: "{{ notify_service }}"
+    data:
+      title: "{{ title }}"
+      message: "{{ message }}"
+      data: "{{ payload }}"

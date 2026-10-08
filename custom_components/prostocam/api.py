@@ -62,14 +62,26 @@ class ProstoCamOutdatedError(ProstoCamError):
 class ProstoCamRejectedError(ProstoCamError):
     """The server refused the request itself; retrying will not help."""
 
-    def __init__(self, status: int, code: str | None, field: str | None = None) -> None:
-        """Remember the HTTP status, the error code and the refused field."""
+    def __init__(
+        self,
+        status: int,
+        code: str | None,
+        field: str | None = None,
+        *,
+        message: str | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Remember the HTTP status, the error code, the refused field and the details."""
         super().__init__(
             " ".join(part for part in (f"HTTP {status}", code, field) if part)
         )
         self.status = status
         self.code = code
         self.field = field
+        # The phrase for a human, in the language of the server (never a secret).
+        self.message = message
+        # The rest of the refusal: `uncovered`, `revision`, `reason` …
+        self.detail = detail or {}
 
 
 def _parse_body(text: str) -> dict[str, Any]:
@@ -133,7 +145,15 @@ def raise_for_reply(status: int, text: str, headers: Any) -> dict[str, Any]:
         raise ProstoCamUnavailableError(code, _retry_after(headers))
     if status >= 500:
         raise ProstoCamConnectionError(f"HTTP {status}")
-    raise ProstoCamRejectedError(status, code, field)
+    error = body.get("error")
+    detail = error if isinstance(error, dict) else body
+    raise ProstoCamRejectedError(
+        status,
+        code,
+        field,
+        message=_error_message(body),
+        detail={k: v for k, v in detail.items() if k not in ("code", "message")},
+    )
 
 
 class ProstoCamClient:
@@ -225,8 +245,29 @@ class ProstoCamClient:
             "Authorization": f"Bearer {self._token}",
         }
 
+    async def async_call(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Any authenticated JSON request under the integration prefix (protocol 3)."""
+        return await self._async_request(
+            method, path, payload, auth=True, params=params, extra_headers=headers
+        )
+
     async def _async_request(
-        self, method: str, path: str, payload: dict[str, Any] | None, *, auth: bool
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None,
+        *,
+        auth: bool,
+        params: dict[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._server}{API_PREFIX}{path}"
         if auth:
@@ -236,13 +277,19 @@ class ProstoCamClient:
                 "Accept": "application/json",
                 "User-Agent": f"HomeAssistant-ProstoCAM/{VERSION}",
             }
+        if extra_headers:
+            headers.update(extra_headers)
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 if method == "get":
-                    response = await self._session.get(url, headers=headers)
-                else:
+                    response = await self._session.get(url, headers=headers, params=params)
+                elif method == "post":
                     response = await self._session.post(
-                        url, json=payload, headers=headers
+                        url, json=payload, headers=headers, params=params
+                    )
+                else:
+                    response = await self._session.request(
+                        method.upper(), url, json=payload, headers=headers, params=params
                     )
                 text = await response.text()
         except (aiohttp.ClientError, TimeoutError) as err:

@@ -18,7 +18,11 @@ from homeassistant.config_entries import (
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -33,7 +37,10 @@ from .api import (
     ProstoCamRejectedError,
 )
 from .const import (
+    ALARM_DOMAIN,
     CODE_LENGTH,
+    CONF_ARMING_SYNC,
+    CONF_ARMING_SYNC_ENTITY,
     CONF_CODE,
     CONF_DEVICE_CLASSES,
     CONF_DOMAINS,
@@ -214,12 +221,23 @@ class ProstoCamOptionsFlow(OptionsFlow):
         """Show the filter."""
         errors: dict[str, str] = {}
         if user_input is not None:
+            sync_entity = user_input.get(CONF_ARMING_SYNC_ENTITY)
             if not user_input.get(CONF_DOMAINS):
                 errors[CONF_DOMAINS] = "no_domains"
+            elif user_input.get(CONF_ARMING_SYNC) and not sync_entity:
+                errors[CONF_ARMING_SYNC_ENTITY] = "sync_entity_required"
+            elif sync_entity and self._is_ours(sync_entity):
+                errors[CONF_ARMING_SYNC_ENTITY] = "sync_entity_own"
             else:
                 return self.async_create_entry(data=user_input)
 
         options = self.config_entry.options
+        sync_key: Any = vol.Optional(CONF_ARMING_SYNC_ENTITY)
+        if options.get(CONF_ARMING_SYNC_ENTITY):
+            sync_key = vol.Optional(
+                CONF_ARMING_SYNC_ENTITY,
+                description={"suggested_value": options[CONF_ARMING_SYNC_ENTITY]},
+            )
         schema = vol.Schema(
             {
                 vol.Required(
@@ -246,6 +264,17 @@ class ProstoCamOptionsFlow(OptionsFlow):
                         translation_key=CONF_DEVICE_CLASSES,
                     )
                 ),
+                # Two-way sync of the ProstoCAM arming with a panel of Home Assistant:
+                # off by default (it needs `arming:write` given in the web account).
+                vol.Required(
+                    CONF_ARMING_SYNC, default=bool(options.get(CONF_ARMING_SYNC, False))
+                ): BooleanSelector(),
+                sync_key: EntitySelector(EntitySelectorConfig(domain=ALARM_DOMAIN)),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+
+    def _is_ours(self, entity_id: str) -> bool:
+        """The ProstoCAM panel itself can not be the panel it follows."""
+        entity = er.async_get(self.hass).async_get(entity_id)
+        return entity is not None and entity.platform == DOMAIN

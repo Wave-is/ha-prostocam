@@ -1,8 +1,9 @@
-"""The last alarm frame of a ProstoCAM camera."""
+"""The last alarm frame of a ProstoCAM camera: the saved frame of the event (protocol 3)."""
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from homeassistant.components.image import ImageEntity
 from homeassistant.core import HomeAssistant
@@ -34,7 +35,7 @@ async def async_setup_entry(
 
 
 class ProstoCamAlarmImage(ProstoCamCameraEntity, ImageEntity):
-    """The frame of the camera taken when its last alarm arrived."""
+    """The frame of the last alarm: of the event itself, or "now" on an older server."""
 
     _attr_translation_key = "last_alarm"
 
@@ -52,6 +53,12 @@ class ProstoCamAlarmImage(ProstoCamCameraEntity, ImageEntity):
     def content_type(self) -> str:
         """Type of the stored frame."""
         return self.camera_state.alarm_image_type
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Which event the frame belongs to and whose frame it is (`event` or `now`)."""
+        state = self.camera_state
+        return {"event_id": state.alarm_event_id, "frame": state.alarm_image_source}
 
     async def async_image(self) -> bytes | None:
         """The stored frame of the last alarm."""

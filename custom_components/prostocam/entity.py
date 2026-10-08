@@ -7,6 +7,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
 from .cameras import CameraState, ProstoCamCameras
+from .control import ProstoCamControl
 
 
 class ProstoCamCameraEntity(Entity):
@@ -38,4 +39,30 @@ class ProstoCamCameraEntity(Entity):
 
     @callback
     def _async_camera_updated(self) -> None:
+        self.async_write_ha_state()
+
+
+class ProstoCamAccountEntity(Entity):
+    """An entity of the ProstoCAM account itself (arming, money); its device is the account."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def _init_account(self, control: ProstoCamControl, key: str) -> None:
+        """Bind the entity to the account (called from __init__ of the platform)."""
+        self.control = control
+        self._attr_unique_id = control.unique_id(key)
+        self._attr_device_info = control.device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the updates of the arming and the account."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, self.control.signal_update, self._async_control_updated
+            )
+        )
+
+    @callback
+    def _async_control_updated(self) -> None:
         self.async_write_ha_state()

@@ -47,16 +47,22 @@
         "description": "У веб-кабінеті ProstoCAM з'являться лише сутності цих типів. Зміни надсилаються лише для тих, які ви там увімкнете.",
         "data": {
           "domains": "Типи сутностей",
-          "device_classes": "Класи бінарних датчиків"
+          "device_classes": "Класи бінарних датчиків",
+          "arming_sync": "Синхронізувати з охороною Home Assistant",
+          "arming_sync_entity": "Охоронна панель Home Assistant"
         },
         "data_description": {
           "domains": "Охоронні панелі повідомляють про постановку і зняття з охорони.",
-          "device_classes": "Бінарні датчики інших класів (батарея, зв'язок тощо) ніколи не надсилаються."
+          "device_classes": "Бінарні датчики інших класів (батарея, зв'язок тощо) ніколи не надсилаються.",
+          "arming_sync": "За замовчуванням вимкнено. Увімкнено — постановка чи зняття охорони ProstoCAM змінює вибрану панель і навпаки. Потрібен доступ «охорона» в кабінеті ProstoCAM.",
+          "arming_sync_entity": "Панель, яка йде за ProstoCAM (не сама панель ProstoCAM)."
         }
       }
     },
     "error": {
-      "no_domains": "Оберіть хоча б один тип сутностей."
+      "no_domains": "Оберіть хоча б один тип сутностей.",
+      "sync_entity_required": "Виберіть охоронну панель для синхронізації.",
+      "sync_entity_own": "Це сама панель ProstoCAM; виберіть панель іншої інтеграції."
     }
   },
   "selector": {
@@ -95,8 +101,12 @@
       "description": "Сервер ProstoCAM більше не приймає цю версію інтеграції, тож події датчиків не доставляються. Оновіть ProstoCAM у HACS і перезапустіть Home Assistant; події, що чекали в черзі, буде надіслано."
     },
     "missing_access": {
-      "title": "Дайте Home Assistant доступ до камер ProstoCAM",
-      "description": "Підключення ProstoCAM цього Home Assistant не має доступу до: {scopes}. Home Assistant показує лише те, що дозволив абонент: cameras:read — камери і кадр, events:read — тривоги руху, людини й транспорту, live:read — ефір.\n\nУ кабінеті ProstoCAM відкрийте «Розумний дім» → Home Assistant → «Що бачитиме Home Assistant», позначте потрібне й натисніть «Зберегти доступ». Нового коду не треба: Home Assistant підхопить зміну протягом хвилини."
+      "title": "Дайте Home Assistant доступ до ProstoCAM",
+      "description": "Підключення ProstoCAM цього Home Assistant не має доступу до: {scopes}. Home Assistant показує лише те, що дозволив абонент: cameras:read — камери і кадр, events:read — тривоги й кадри подій, live:read — ефір, archive:read — кліпи й архів у «Медіа», arming:write — охорона ProstoCAM як охоронна панель, actions:write — кнопки «Перевірити тривогу», «Перевірити ШІ», «Не турбувати» і «Відлякати», account:read — баланс, тариф і ШІ-кредити.\n\nУ кабінеті ProstoCAM відкрийте «Розумний дім» → Home Assistant → «Що бачитиме Home Assistant», позначте потрібне й натисніть «Зберегти доступ». Нового коду не треба: Home Assistant підхопить зміну протягом хвилини. Дозволеним зможе користуватися кожен, хто має доступ до вашого Home Assistant."
+    },
+    "account_stage": {
+      "title": "Рахунок ProstoCAM: {stage}",
+      "description": "ProstoCAM обмежив цей рахунок через несплату ({stage}): записи, тривоги чи ефір можуть зупинитися. Поповніть баланс у кабінеті ProstoCAM; це повідомлення зникне саме протягом 15 хвилин після оплати."
     }
   },
   "entity": {
@@ -128,6 +138,156 @@
     "image": {
       "last_alarm": {
         "name": "Останній кадр тривоги"
+      }
+    },
+    "alarm_control_panel": {
+      "arming": {
+        "name": "Охорона ProstoCAM"
+      }
+    },
+    "button": {
+      "test_alarm": {
+        "name": "Перевірити тривогу"
+      },
+      "ai_check": {
+        "name": "Перевірити ШІ (витрачає кредит)"
+      },
+      "deter": {
+        "name": "Відлякати"
+      }
+    },
+    "select": {
+      "do_not_disturb": {
+        "name": "Не турбувати",
+        "state": {
+          "off": "Вимкнено",
+          "1h": "На годину",
+          "until_morning": "До ранку",
+          "muted": "Заглушено (інший строк)"
+        }
+      }
+    },
+    "sensor": {
+      "balance": {
+        "name": "Баланс"
+      },
+      "tariff": {
+        "name": "Тариф"
+      },
+      "ai_credits": {
+        "name": "ШІ-кредити"
+      },
+      "next_charge": {
+        "name": "Наступне списання"
+      },
+      "stage": {
+        "name": "Стан рахунку"
+      }
+    }
+  },
+  "exceptions": {
+    "scope_missing": {
+      "message": "ProstoCAM не дозволяє цього Home Assistant: {message}. Дайте доступ у кабінеті ProstoCAM («Розумний дім» → Home Assistant)."
+    },
+    "token_invalid": {
+      "message": "ProstoCAM більше не приймає цей Home Assistant; перепідключіть його новим кодом."
+    },
+    "refused": {
+      "message": "ProstoCAM: {message}"
+    },
+    "request_failed": {
+      "message": "Сервер ProstoCAM недоступний: {error}"
+    },
+    "arming_state_unknown": {
+      "message": "У ProstoCAM немає режиму охорони {state}."
+    },
+    "arming_not_ready": {
+      "message": "ProstoCAM не готовий стати під охорону: {cameras}. Виправте камери або скористайтеся дією «Поставити ProstoCAM попри неготовність»."
+    },
+    "arming_conflict": {
+      "message": "Охорону ProstoCAM щойно змінили в іншому місці; Home Assistant узяв новий стан. Повторіть, якщо ще потрібно."
+    },
+    "no_event": {
+      "message": "Від запуску Home Assistant у цієї камери не було тривоги; перевіряти нічого."
+    },
+    "ai_confirm": {
+      "message": "Перевірка ШІ витрачає кредит: {message}. Викличте дію з увімкненим «Витратити кредит»."
+    },
+    "ai_press_again": {
+      "message": "Перевірка ШІ витрачає кредит: {message}. Натисніть кнопку ще раз протягом {seconds} с, щоб підтвердити."
+    },
+    "entry_not_loaded": {
+      "message": "Це підключення ProstoCAM не завантажене."
+    },
+    "choose_entry": {
+      "message": "Виберіть підключення ProstoCAM."
+    },
+    "not_a_camera": {
+      "message": "Виберіть пристрій-камеру ProstoCAM."
+    },
+    "no_access": {
+      "message": "ProstoCAM не дозволяє цього Home Assistant ({scope}). Дайте доступ у кабінеті ProstoCAM («Розумний дім» → Home Assistant)."
+    }
+  },
+  "services": {
+    "mute": {
+      "name": "Не турбувати",
+      "description": "Глушить тривоги камери ProstoCAM на всіх каналах на певний час (у стрічку тривоги пишуться як завжди).",
+      "fields": {
+        "device_id": {
+          "name": "Камера",
+          "description": "Пристрій-камера ProstoCAM."
+        },
+        "minutes": {
+          "name": "Хвилини",
+          "description": "1…1440; 0 знімає глушіння."
+        }
+      }
+    },
+    "test_alarm": {
+      "name": "Перевірити тривогу",
+      "description": "Надсилає тестову тривогу камери ProstoCAM усіма каналами абонента (стрічка, push, Telegram, Home Assistant).",
+      "fields": {
+        "device_id": {
+          "name": "Камера",
+          "description": "Пристрій-камера ProstoCAM."
+        }
+      }
+    },
+    "verify_ai": {
+      "name": "Перевірити ШІ",
+      "description": "Просить ШІ ProstoCAM розібрати подію за серією кадрів. Витрачає ШІ-кредит лише з увімкненим «Витратити кредит»; вимкнено — відповідь назве ціну.",
+      "fields": {
+        "device_id": {
+          "name": "Камера",
+          "description": "Перевіряється остання тривога цієї камери ProstoCAM."
+        },
+        "event_id": {
+          "name": "Подія",
+          "description": "Номер події (атрибут event_id тривоги); замість камери."
+        },
+        "config_entry_id": {
+          "name": "Підключення",
+          "description": "З номером події: підключення ProstoCAM, коли їх кілька."
+        },
+        "spend_credit": {
+          "name": "Витратити кредит",
+          "description": "Підтверджує витрату одного ШІ-кредиту."
+        }
+      }
+    },
+    "arm_anyway": {
+      "name": "Поставити ProstoCAM попри неготовність",
+      "description": "Ставить ProstoCAM під охорону, хоча частина камер не готова, називаючи кожну з них (як «Поставити попри все» в кабінеті).",
+      "fields": {
+        "state": {
+          "name": "Режим",
+          "description": "armed_home, armed_night або armed_away."
+        },
+        "config_entry_id": {
+          "name": "Підключення",
+          "description": "Підключення ProstoCAM, коли їх кілька."
+        }
       }
     }
   }

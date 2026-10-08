@@ -47,16 +47,22 @@
         "description": "Only entities of these types appear in the ProstoCAM web account. Changes are sent only for entities you switch on there.",
         "data": {
           "domains": "Entity types",
-          "device_classes": "Binary sensor classes"
+          "device_classes": "Binary sensor classes",
+          "arming_sync": "Sync with the Home Assistant alarm panel",
+          "arming_sync_entity": "Home Assistant alarm panel"
         },
         "data_description": {
           "domains": "Alarm panels report arming and disarming.",
-          "device_classes": "Binary sensors of other classes (battery, connectivity and so on) are never sent."
+          "device_classes": "Binary sensors of other classes (battery, connectivity and so on) are never sent.",
+          "arming_sync": "Off by default. When on, arming or disarming ProstoCAM changes the chosen panel and the other way round. Needs the \"arming\" access in the ProstoCAM web account.",
+          "arming_sync_entity": "The panel that follows ProstoCAM (not the ProstoCAM panel itself)."
         }
       }
     },
     "error": {
-      "no_domains": "Choose at least one entity type."
+      "no_domains": "Choose at least one entity type.",
+      "sync_entity_required": "Choose the alarm panel to sync with.",
+      "sync_entity_own": "This is the ProstoCAM panel itself; choose a panel of another integration."
     }
   },
   "selector": {
@@ -95,8 +101,12 @@
       "description": "The ProstoCAM server no longer accepts this version of the integration, so sensor events are not delivered. Update ProstoCAM in HACS and restart Home Assistant; events that waited in the queue will be sent."
     },
     "missing_access": {
-      "title": "Give Home Assistant access to your ProstoCAM cameras",
-      "description": "The ProstoCAM connection of this Home Assistant has no access to: {scopes}. Home Assistant shows only what the subscriber allowed: cameras:read — cameras and snapshots, events:read — motion, person and vehicle alarms, live:read — live video.\n\nIn the ProstoCAM web account open Smart Home → Home Assistant → \"What Home Assistant will see\", tick what it may see and press \"Save access\". No new code is needed: Home Assistant picks the change up within a minute."
+      "title": "Give Home Assistant access to ProstoCAM",
+      "description": "The ProstoCAM connection of this Home Assistant has no access to: {scopes}. Home Assistant shows only what the subscriber allowed: cameras:read — cameras and snapshots, events:read — alarms and frames of events, live:read — live video, archive:read — clips and the archive in Media, arming:write — the ProstoCAM arming as an alarm panel, actions:write — test alarm, AI check, do not disturb and deterrence buttons, account:read — balance, tariff and AI credits.\n\nIn the ProstoCAM web account open Smart Home → Home Assistant → \"What Home Assistant will see\", tick what it may see and press \"Save access\". No new code is needed: Home Assistant picks the change up within a minute. Everyone with access to your Home Assistant can use what you allow."
+    },
+    "account_stage": {
+      "title": "ProstoCAM account is {stage}",
+      "description": "ProstoCAM limits this account because of an unpaid balance ({stage}): recordings, alarms or live video may stop. Top up the balance in the ProstoCAM web account; this message goes away by itself within 15 minutes after the payment."
     }
   },
   "entity": {
@@ -128,6 +138,156 @@
     "image": {
       "last_alarm": {
         "name": "Last alarm frame"
+      }
+    },
+    "alarm_control_panel": {
+      "arming": {
+        "name": "ProstoCAM security"
+      }
+    },
+    "button": {
+      "test_alarm": {
+        "name": "Test alarm"
+      },
+      "ai_check": {
+        "name": "Check with AI (spends a credit)"
+      },
+      "deter": {
+        "name": "Deter"
+      }
+    },
+    "select": {
+      "do_not_disturb": {
+        "name": "Do not disturb",
+        "state": {
+          "off": "Off",
+          "1h": "For an hour",
+          "until_morning": "Until the morning",
+          "muted": "Muted (another period)"
+        }
+      }
+    },
+    "sensor": {
+      "balance": {
+        "name": "Balance"
+      },
+      "tariff": {
+        "name": "Tariff"
+      },
+      "ai_credits": {
+        "name": "AI credits"
+      },
+      "next_charge": {
+        "name": "Next charge"
+      },
+      "stage": {
+        "name": "Account status"
+      }
+    }
+  },
+  "exceptions": {
+    "scope_missing": {
+      "message": "ProstoCAM does not allow this to Home Assistant: {message}. Give the access in the ProstoCAM web account (Smart Home → Home Assistant)."
+    },
+    "token_invalid": {
+      "message": "ProstoCAM no longer accepts this Home Assistant; reconnect it with a new code."
+    },
+    "refused": {
+      "message": "ProstoCAM: {message}"
+    },
+    "request_failed": {
+      "message": "ProstoCAM could not be reached: {error}"
+    },
+    "arming_state_unknown": {
+      "message": "ProstoCAM has no arming mode {state}."
+    },
+    "arming_not_ready": {
+      "message": "ProstoCAM is not ready to arm: {cameras}. Fix the cameras or use the action \"Arm ProstoCAM anyway\"."
+    },
+    "arming_conflict": {
+      "message": "The ProstoCAM arming has just been changed elsewhere; Home Assistant took the new state. Try again if it is still needed."
+    },
+    "no_event": {
+      "message": "This camera has had no alarm since Home Assistant started; there is nothing to check."
+    },
+    "ai_confirm": {
+      "message": "The AI check spends a credit: {message}. Call the action with \"Spend a credit\" switched on."
+    },
+    "ai_press_again": {
+      "message": "The AI check spends a credit: {message}. Press the button again within {seconds} s to confirm."
+    },
+    "entry_not_loaded": {
+      "message": "This ProstoCAM connection is not loaded."
+    },
+    "choose_entry": {
+      "message": "Choose the ProstoCAM connection."
+    },
+    "not_a_camera": {
+      "message": "Choose a ProstoCAM camera device."
+    },
+    "no_access": {
+      "message": "ProstoCAM does not allow this to Home Assistant ({scope}). Give the access in the ProstoCAM web account (Smart Home → Home Assistant)."
+    }
+  },
+  "services": {
+    "mute": {
+      "name": "Do not disturb",
+      "description": "Mutes the alarms of a ProstoCAM camera on every channel for a while (alarms are still written to the feed).",
+      "fields": {
+        "device_id": {
+          "name": "Camera",
+          "description": "The ProstoCAM camera device."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "1…1440; 0 switches the mute off."
+        }
+      }
+    },
+    "test_alarm": {
+      "name": "Test alarm",
+      "description": "Sends a test alarm of a ProstoCAM camera through every channel of the subscriber (feed, push, Telegram, Home Assistant).",
+      "fields": {
+        "device_id": {
+          "name": "Camera",
+          "description": "The ProstoCAM camera device."
+        }
+      }
+    },
+    "verify_ai": {
+      "name": "Check with AI",
+      "description": "Asks the ProstoCAM AI to check an event over the series of its frames. Spends an AI credit only with \"Spend a credit\" on; off — the reply names the price.",
+      "fields": {
+        "device_id": {
+          "name": "Camera",
+          "description": "The last alarm of this ProstoCAM camera is checked."
+        },
+        "event_id": {
+          "name": "Event",
+          "description": "Number of the event (attribute event_id of the alarm); instead of the camera."
+        },
+        "config_entry_id": {
+          "name": "Connection",
+          "description": "With an event number: the ProstoCAM connection, when there are several."
+        },
+        "spend_credit": {
+          "name": "Spend a credit",
+          "description": "Confirms spending one AI credit."
+        }
+      }
+    },
+    "arm_anyway": {
+      "name": "Arm ProstoCAM anyway",
+      "description": "Arms ProstoCAM although some cameras are not ready, naming each of them (as \"Arm anyway\" in the web account).",
+      "fields": {
+        "state": {
+          "name": "Mode",
+          "description": "armed_home, armed_night or armed_away."
+        },
+        "config_entry_id": {
+          "name": "Connection",
+          "description": "The ProstoCAM connection, when there are several."
+        }
       }
     }
   }

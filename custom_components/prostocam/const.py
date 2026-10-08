@@ -9,7 +9,7 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "0.2.0"
+VERSION: Final = "0.3.0"
 
 DEFAULT_SERVER: Final = "https://new.prosto.cam"
 DEFAULT_TITLE: Final = "ProstoCAM"
@@ -39,7 +39,7 @@ KEY_BATTERY_LEVELS: Final = "battery_levels"
 BATTERY_ATTRIBUTES: Final = ("battery_level", "battery")
 KEY_PROTOCOL_VERSION: Final = "protocol_version"
 KEY_RESULTS: Final = "results"
-PROTOCOL_VERSION: Final = 2
+PROTOCOL_VERSION: Final = 3
 
 # Server error codes the integration tells apart.
 ERROR_ALREADY_CONNECTED: Final = "already_connected"
@@ -160,4 +160,85 @@ EVENT_TYPE_OF_CLASS: Final = {
 }
 DETECTIONS: Final = ("motion", "person", "vehicle")
 
-PLATFORMS: Final = ["camera", "binary_sensor", "event", "image"]
+# ---------------------------------------------------------------- protocol 3
+# Media, ProstoCAM arming, buttons and money (contract §11–§12). The areas are
+# never given by default: the subscriber ticks each one in the web account.
+CONTROL_PROTOCOL: Final = 3
+SCOPE_ARCHIVE: Final = "archive:read"
+SCOPE_ARMING: Final = "arming:write"
+SCOPE_ACTIONS: Final = "actions:write"
+SCOPE_ACCOUNT: Final = "account:read"
+CONTROL_SCOPES: Final = (SCOPE_ARCHIVE, SCOPE_ARMING, SCOPE_ACTIONS, SCOPE_ACCOUNT)
+
+PATH_ARMING: Final = "/arming"
+PATH_ACCOUNT: Final = "/account"
+PATH_EVENT: Final = "/events/{event_id}"  # + /snapshot, /clip, /ai-verify
+PATH_CAMERA: Final = "/cameras/{camera_id}"  # + /events, /archive, /mute, ...
+
+# Words of the ProstoCAM arming for Home Assistant (contract §11.4).
+ARMING_STATES: Final = ("disarmed", "armed_home", "armed_night", "armed_away")
+ARMING_POLICY_DEGRADED: Final = "degraded"
+ERROR_ARMING_NOT_READY: Final = "arming_not_ready"
+ERROR_UNCOVERED: Final = "arming_uncovered_not_acknowledged"
+ERROR_VERSION_CONFLICT: Final = "version_conflict"
+ERROR_ECHO_SUPPRESSED: Final = "arming_echo_suppressed"
+ERROR_AI_CONFIRM: Final = "ai_credit_confirmation_required"
+ERROR_FRAME_MISSING: Final = "event_frame_missing"
+ERROR_CLIP_UNAVAILABLE: Final = "clip_unavailable"
+
+# Options: two-way sync of the ProstoCAM arming with an alarm panel of Home Assistant.
+CONF_ARMING_SYNC: Final = "arming_sync"
+CONF_ARMING_SYNC_ENTITY: Final = "arming_sync_entity"
+# A mode the other side set less than this ago is not mirrored back (contract §11.4: 15 s).
+SYNC_ECHO_WINDOW: Final = 15  # seconds
+# Modes of a Home Assistant panel that ProstoCAM knows; others are not mirrored.
+HA_PANEL_TO_ARMING: Final = {
+    "disarmed": "disarmed",
+    "armed_home": "armed_home",
+    "armed_night": "armed_night",
+    "armed_away": "armed_away",
+    "armed_vacation": "armed_away",
+    "armed_custom_bypass": "armed_home",
+}
+
+ARMING_POLL: Final = 60  # seconds, only while the event channel is down
+ARMING_REFRESH: Final = 900  # seconds, a safety read while the channel is up
+TRIGGERED_HOLD: Final = 120  # seconds the panel shows "triggered" after an alarm
+ACCOUNT_INTERVAL: Final = 900  # seconds; the server asks for at most one in 15 minutes
+MUTE_INTERVAL: Final = 300  # seconds
+DETERRENCE_INTERVAL: Final = 86400  # seconds
+AI_CONFIRM_WINDOW: Final = 30  # seconds between the two presses of "Check with AI"
+MORNING_HOUR: Final = 7  # "until the morning" = until 07:00 local time
+MAX_MUTE_MINUTES: Final = 1440
+EVENT_PAGE_LIMIT: Final = 100
+EVENT_MAX_PAGES: Final = 10
+MEDIA_DAYS: Final = 7
+FRAME_CACHE_SIZE: Final = 32
+FRAME_RETRY: Final = 3  # seconds before the second try of a frame not saved yet
+
+ISSUE_ACCOUNT_STAGE: Final = "account_stage"
+ACCOUNT_STAGES_TO_FIX: Final = frozenset({"restricted", "suspended"})
+
+# Home Assistant events for automations and the notification blueprint.
+EVENT_ALARM: Final = "prostocam_alarm"
+EVENT_AI_VERDICT: Final = "prostocam_ai_verdict"
+
+# Services.
+SERVICE_MUTE: Final = "mute"
+SERVICE_TEST_ALARM: Final = "test_alarm"
+SERVICE_VERIFY_AI: Final = "verify_ai"
+SERVICE_ARM_ANYWAY: Final = "arm_anyway"
+
+# Frames of events reach the browser and the companion app through Home Assistant.
+VIEW_EVENT_SNAPSHOT: Final = "/api/prostocam/{entry_id}/events/{event_id}/snapshot.jpg"
+
+PLATFORMS: Final = [
+    "camera",
+    "binary_sensor",
+    "event",
+    "image",
+    "alarm_control_panel",
+    "button",
+    "select",
+    "sensor",
+]

@@ -212,6 +212,11 @@ class ProstoCamBridge:
             return False
         if server_domains is not None and state.domain not in server_domains:
             return False
+        entity = er.async_get(self.hass).async_get(state.entity_id)
+        if entity is not None and entity.platform == DOMAIN:
+            # Our own entities (camera detections, the ProstoCAM arming panel) are
+            # ProstoCAM already: sending them back would make a loop.
+            return False
         if state.domain == "binary_sensor":
             return state.attributes.get("device_class") in self.device_classes
         return True

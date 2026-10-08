@@ -55,7 +55,8 @@
 перезапуск Home Assistant. Кожна подія каже серверу, скільки чекала: запізніла подія лише пишеться в журнал і не будить камери.
 
 Не надсилається: інші сутності й атрибути, історія, камери і зображення Home Assistant, координати, користувачі, паролі
-й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant.
+й токени Home Assistant. ProstoCAM не може нічого вмикати чи змінювати у вашому Home Assistant — крім охоронної панелі, яку ви самі вибрали для
+синхронізації з охороною ProstoCAM (з 0.3, за замовчуванням вимкнено).
 
 Токен підключення зберігається в Home Assistant і не потрапляє в діагностику.
 
@@ -81,6 +82,44 @@
 
 Ефір відкривається у звичайній картці камери (HLS, затримка кілька секунд). WebRTC (go2rtc) для цих камер поки не
 пропонується — він обривав би ефір через 5 хвилин.
+
+### «Медіа», охорона, кнопки і рахунок (з 0.3)
+
+Потрібен сервер ProstoCAM із протоколом 3. Кожну можливість абонент вмикає окремою позначкою в кабінеті
+(**Розумний дім → Home Assistant → «Що бачитиме Home Assistant»**) — за замовчуванням вони вимкнені. Чого не дозволено —
+того в Home Assistant немає, а в **Налаштування → Ремонт** є підказка, де дати доступ.
+
+- **Кадр тривоги** — «Останній кадр тривоги» тепер показує кадр **самої події** (збережений у мить тривоги), а не «зараз».
+- **Медіа** (записи, `archive:read`): **Медіа → ProstoCAM → камера → день → події** (мініатюра — кадр події, клік —
+  кліп) і **→ Архів → день → година**. Кожне відтворення бере свіжу одноразову адресу; кадри йдуть через ваш
+  Home Assistant, токен ProstoCAM браузер не бачить.
+- **Охорона ProstoCAM** (`arming:write`) — охоронна панель з режимами «Вдома», «Ніч», «Нікого немає» і зняттям,
+  ті самі перевірки готовності, що в кабінеті. Камера не готова — помилка й сповіщення зі списком камер; поставити
+  попри це — дія **«Поставити ProstoCAM попри неготовність»** (`prostocam.arm_anyway`). Після тривоги під охороною
+  панель 2 хвилини показує «тривога».
+  **Синхронізація з охороною Home Assistant** (Параметри інтеграції, за замовчуванням вимкнена): виберіть свою панель
+  (наприклад, Ajax через SIA) — постановка чи зняття з будь-якого боку переходить на інший. Від петель захищено:
+  зміну, зроблену самим Home Assistant, ProstoCAM позначає й назад не віддзеркалюється, а той самий режим сервер
+  просто відповідає «без змін». Панель, що вимагає код, не може йти за ProstoCAM без коду.
+- **Кнопки камери** (`actions:write`): **«Перевірити тривогу»** (тестова тривога всіма каналами), **«Не турбувати»**
+  (вимкнено / на годину / до ранку — 07:00 за часом Home Assistant), **«Відлякати»** — лише в камер із сиреною чи
+  світлом і лише після свіжої тривоги, **«Перевірити ШІ (витрачає кредит)»** — вимкнена за замовчуванням: увімкніть
+  її в налаштуваннях сутності; перше натискання лише називає ціну, кредит витрачає друге натискання протягом 30 с.
+- **Рахунок** (`account:read`): баланс, тариф, ШІ-кредити, дата наступного списання, стан рахунку (раз на 15 хвилин);
+  рахунок обмежено за несплату — підказка в «Ремонті».
+- **Дії** для автоматизацій: `prostocam.mute` (хвилини, 0 — зняти), `prostocam.test_alarm`, `prostocam.verify_ai`
+  (поле `spend_credit` обов'язкове: без нього кредит не витрачається, відповідь назве ціну; повертає підсумок ШІ),
+  `prostocam.arm_anyway`.
+- **Події шини** `prostocam_alarm` (камера, вид, номер події, шлях кадру) і `prostocam_ai_verdict` (підсумок ШІ).
+
+**Готове сповіщення на телефон із кадром і текстом ШІ** — blueprint
+[`alarm_notify.yaml`](blueprints/automation/prostocam/alarm_notify.yaml):
+**Налаштування → Автоматизації → Blueprints → Імпортувати** й вставте
+`https://github.com/Wave-is/ha-prostocam/blob/main/blueprints/automation/prostocam/alarm_notify.yaml`. Виберіть телефон,
+камери й види тривог. Повідомлення йде одразу з кадром події; текст ШІ (після «Перевірити ШІ») оновлює те саме
+повідомлення.
+
+Пам'ятайте: охороною, кнопками й записами зможе користуватися кожен, хто має доступ до вашого Home Assistant.
 
 ---
 
@@ -129,7 +168,8 @@ Sent:
 - a **heartbeat** every minute: Home Assistant and integration versions.
 
 Not sent: any other entity or attribute, history, Home Assistant cameras and images, locations, users, passwords and tokens
-of Home Assistant. ProstoCAM can not switch or change anything in your Home Assistant.
+of Home Assistant. ProstoCAM can not switch or change anything in your Home Assistant — except the alarm panel you chose
+yourself to sync with the ProstoCAM arming (since 0.3, off by default).
 
 The connection token is stored in Home Assistant and is redacted from diagnostics.
 
@@ -156,6 +196,45 @@ Assistant sees these cameras.
 
 Live video opens in the usual camera card (HLS, a few seconds of delay). WebRTC (go2rtc) is not offered for these cameras
 yet — it would cut the stream after 5 minutes.
+
+### Media, arming, buttons and the account (since 0.3)
+
+Needs a ProstoCAM server of protocol 3. The subscriber switches each part on with its own tick in the web account
+(**Smart Home → Home Assistant → "What Home Assistant will see"**); none is on by default. What is not allowed does not
+appear, and **Settings → Repairs** says where to give the access.
+
+- **Alarm frame** — "Last alarm frame" now shows the frame of the **event itself** (saved at the moment of the alarm),
+  not "now".
+- **Media** (recordings, `archive:read`): **Media → ProstoCAM → camera → day → events** (thumbnail — the frame of the
+  event, click — the clip) and **→ Archive → day → hour**. Every playback takes a fresh one-time address; frames go
+  through your Home Assistant, the browser never sees the ProstoCAM token.
+- **ProstoCAM security** (`arming:write`) — an alarm panel with Home, Night, Away and disarm, with the same readiness
+  check as the web account. A camera not ready — an error and a notification listing the cameras; arm anyway with the
+  action **"Arm ProstoCAM anyway"** (`prostocam.arm_anyway`). After an alarm while armed the panel shows "triggered"
+  for 2 minutes.
+  **Sync with the Home Assistant alarm panel** (integration options, off by default): choose your panel (for example
+  Ajax via SIA) — arming or disarming on either side follows on the other. Loops are prevented: a change made by this
+  Home Assistant is marked by ProstoCAM and not mirrored back, and the same mode is answered "unchanged" by the server.
+  A panel that needs a code can not follow ProstoCAM without one.
+- **Camera buttons** (`actions:write`): **Test alarm** (through every channel), **Do not disturb** (off / for an hour /
+  until the morning — 07:00 Home Assistant time), **Deter** — only for cameras with a siren or light and only after a
+  fresh alarm, **Check with AI (spends a credit)** — disabled by default: enable the entity; the first press only names
+  the price, a second press within 30 s spends the credit.
+- **Account** (`account:read`): balance, tariff, AI credits, next charge date, account status (every 15 minutes); an
+  account restricted for an unpaid balance raises a repair.
+- **Actions** for automations: `prostocam.mute` (minutes, 0 — off), `prostocam.test_alarm`, `prostocam.verify_ai` (the
+  field `spend_credit` is required: without it no credit is spent and the reply names the price; returns the AI result),
+  `prostocam.arm_anyway`.
+- **Bus events** `prostocam_alarm` (camera, kind, event number, frame path) and `prostocam_ai_verdict` (the AI result).
+
+**Ready phone notification with the frame and the AI text** — the blueprint
+[`alarm_notify.yaml`](blueprints/automation/prostocam/alarm_notify.yaml): **Settings → Automations → Blueprints →
+Import** and paste
+`https://github.com/Wave-is/ha-prostocam/blob/main/blueprints/automation/prostocam/alarm_notify.yaml`. Choose the phone,
+cameras and alarm kinds. The notification goes out at once with the frame of the event; the AI text (after Check with AI)
+updates the same notification.
+
+Remember: everyone with access to your Home Assistant can use the arming, buttons and recordings you allow.
 
 ### Reliability
 

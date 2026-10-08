@@ -24,6 +24,7 @@ from custom_components.prostocam.const import (
     DOMAIN,
     ISSUE_MISSING_ACCESS,
     SNAPSHOT_CACHE,
+    VERSION,
 )
 from custom_components.prostocam.diagnostics import (
     async_get_config_entry_diagnostics,
@@ -598,16 +599,16 @@ async def test_diagnostics_hide_token_and_live_address(
     assert cameras["stats"]["live_starts"] == 1
 
 
-async def test_heartbeat_reports_version_0_2(
+async def test_heartbeat_reports_the_version(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """The heartbeat carries client_version 0.2.0."""
+    """The heartbeat carries the version of the integration (0.3.0)."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
     heartbeat = calls_to(aioclient_mock, "heartbeat")[0]
-    assert heartbeat[2]["client_version"] == "0.2.0"
+    assert heartbeat[2]["client_version"] == VERSION == "0.3.0"
 
 
 async def test_event_entity_fires_bus_state_change(
