@@ -245,7 +245,73 @@
       "message": "Сервер ProstoCAM ще цього не вміє (потрібен протокол 4). Спробуйте після оновлення сервера."
     },
     "export_failed": {
-      "message": "ProstoCAM не зміг підготувати кліп: {error}."
+      "message": "ProstoCAM не зміг підготувати кліп. Замовте ще раз; якщо повториться — код причини є в діагностиці інтеграції."
+    },
+    "export_no_recording": {
+      "message": "За цей час запису немає: камера нічого не записала. Повтор не допоможе — оберіть час, де є запис."
+    },
+    "export_no_recording_nearest": {
+      "message": "За цей час запису немає — найближчий запис: {nearest}."
+    },
+    "export_gaps": {
+      "message": "На цьому відрізку немає суцільного запису: він порожній або з розривами. Замовте коротший кліп або інший час."
+    },
+    "export_recording_gone": {
+      "message": "Запис цього відрізка зник, поки готувався кліп (наприклад, видалений за строком зберігання)."
+    },
+    "export_damaged": {
+      "message": "Запис на цьому відрізку пошкоджений і не читається. Оберіть сусідній відрізок."
+    },
+    "export_encoding_changed": {
+      "message": "Камера змінила кодек або роздільність посеред відрізка. Замовте окремо час до зміни і після неї."
+    },
+    "export_cancelled": {
+      "message": "Кліп не підготовлено: вивантаження скасовано."
+    },
+    "export_cannot_assemble": {
+      "message": "ProstoCAM не може зібрати цей кліп, повтор не допоможе. Повідомте підтримку ProstoCAM."
+    },
+    "export_retry": {
+      "message": "Збій ProstoCAM під час збирання кліпу — запис не постраждав. Замовте ще раз."
+    },
+    "ai_credits_insufficient": {
+      "message": "Кредитів ШІ не вистачає для цієї перевірки. Поповніть кредити в кабінеті ProstoCAM."
+    },
+    "rate_limited": {
+      "message": "Забагато запитів до ProstoCAM. Спробуйте за хвилину."
+    },
+    "camera_not_found": {
+      "message": "ProstoCAM не знає цієї камери або її не вибрано для Home Assistant (кабінет → Розумний дім → Home Assistant)."
+    },
+    "event_not_found": {
+      "message": "У ProstoCAM немає такої події цієї камери."
+    },
+    "export_not_found": {
+      "message": "Цього вивантаження в ProstoCAM уже немає — замовте кліп ще раз."
+    },
+    "account_inactive": {
+      "message": "Акаунт ProstoCAM призупинено; відео й записи повернуться після оплати."
+    },
+    "arming_readiness_unknown": {
+      "message": "ProstoCAM ще не знає, чи камери готові до охорони. Спробуйте за хвилину."
+    },
+    "already_in_progress": {
+      "message": "ProstoCAM уже виконує такий самий запит — дочекайтеся результату."
+    },
+    "server_busy": {
+      "message": "ProstoCAM зараз не може цього зробити. Спробуйте за кілька хвилин."
+    },
+    "no_recording": {
+      "message": "За цей час запису немає."
+    },
+    "bridge_disabled": {
+      "message": "Home Assistant вимкнено в кабінеті ProstoCAM (Розумний дім → Home Assistant)."
+    },
+    "invalid_request": {
+      "message": "ProstoCAM не прийняв запит: {message}"
+    },
+    "refused_unknown": {
+      "message": "ProstoCAM відмовив. Код причини є в діагностиці інтеграції."
     },
     "export_in_future": {
       "message": "Кліп має закінчуватися в минулому: оберіть раніший початок або коротшу тривалість."

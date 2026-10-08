@@ -85,7 +85,14 @@ async def test_command_errors_name_the_reason(
         with pytest.raises(HomeAssistantError) as err:
             await control.async_test_alarm(12)
         keys.append(err.value.translation_key)
-    assert keys == ["scope_missing", "refused", "request_failed", "request_failed", "token_invalid"]
+    assert keys == ["scope_missing", "refused", "refused_unknown", "request_failed", "token_invalid"]
+    assert control.stats["error_codes"] == {
+        "scope_missing": 1,
+        "rate_limited_camera": 1,
+        "busy": 1,
+        "ProstoCamConnectionError": 1,
+        "token_invalid": 1,
+    }
     assert "actions:write" in control.cameras.denied
     await hass.async_block_till_done()
     assert control.bridge.auth_failed
@@ -382,7 +389,7 @@ async def test_ai_check_refusals(
     assert err.value.translation_key == "no_event"
     with pytest.raises(HomeAssistantError) as err:
         await control.async_verify_ai(None, 456, spend_credit=True)
-    assert err.value.translation_placeholders == {"message": "Кредитів немає"}
+    assert err.value.translation_key == "ai_credits_insufficient"
     control.cameras.states[12].last_event_id = 456
     with pytest.raises(HomeAssistantError) as err:
         await control.async_press_ai(12)

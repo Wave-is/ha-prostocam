@@ -44,7 +44,7 @@ from .const import (
     SCOPE_ARCHIVE,
     STORAGE_VERSION,
 )
-from .control import command_error
+from .errors import NO_RECORDING_CODES, command_error, export_error, recorded_ranges
 from .words import events_noun, word
 
 if TYPE_CHECKING:
@@ -99,6 +99,7 @@ class ProstoCamArchive:
             "exports_ready": 0,
             "exports_failed": 0,
             "export_errors": 0,
+            "error_codes": {},
         }
 
     @property
@@ -158,7 +159,7 @@ class ProstoCamArchive:
         except ProstoCamError as err:
             self.stats["question_errors"] += 1
             self._failed(err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         self.stats["questions"] += 1
         raw_items = data.get("items")
         items = [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
@@ -285,20 +286,66 @@ class ProstoCamArchive:
         except ProstoCamError as err:
             self.stats["export_errors"] += 1
             self._failed(err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         self.stats["exports"] += 1
         job_id = _int(job.get("job_id"))
         if job_id is None:
             self.stats["export_errors"] += 1
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="export_failed",
-                translation_placeholders={"error": "no job"},
-            )
+            raise export_error("no_job", self.stats["error_codes"])
         self._remember(camera_id, job_id, job, duration)
         if wait:
             job = await self._async_wait(camera_id, job_id, job)
+        if _str(job.get("state")) == "failed":
+            self.stats["exports_failed"] += 1
+            raise await self._export_failure(camera_id, job)
         return self._result(camera_id, job_id, job)
+
+    async def _export_failure(
+        self, camera_id: int, job: dict[str, Any]
+    ) -> ServiceValidationError:
+        """The reason of a failed export; with no recording — the nearest recording."""
+        code = _str(job.get("error_code"))
+        nearest = None
+        if code in NO_RECORDING_CODES:
+            nearest = await self._nearest_recording(camera_id, job)
+        return export_error(code, self.stats["error_codes"], nearest)
+
+    async def _nearest_recording(self, camera_id: int, job: dict[str, Any]) -> str | None:
+        """«07.10 14:20:04–14:21:16, 14:30:04–14:30:44»: the recordings around the clip.
+
+        The archive answers `404 no_recording` for a window without a recorded
+        second, with the nearest recorded pieces before and after it (contract §11.3).
+        """
+        begin = dt_util.parse_datetime(str(job.get("from") or ""))
+        end = dt_util.parse_datetime(str(job.get("to") or ""))
+        if begin is None or end is None or end <= begin:
+            return None
+        try:
+            await self.hub.client.async_call(
+                "get",
+                f"/cameras/{camera_id}/archive",
+                params={
+                    "from": str(int(begin.timestamp())),
+                    "to": str(int(end.timestamp())),
+                },
+            )
+        except ProstoCamRejectedError as err:
+            ranges = recorded_ranges(err.detail) if err.code == "no_recording" else []
+        except ProstoCamError as err:
+            LOGGER.debug("ProstoCAM nearest recording not read (%s)", err)
+            return None
+        else:
+            return None  # the window has a recording by now: nothing to point at
+        if not ranges:
+            return None
+        today = dt_util.now().date()
+        parts = []
+        for start, duration in ranges:
+            first = dt_util.as_local(dt_util.utc_from_timestamp(start))
+            last = dt_util.as_local(dt_util.utc_from_timestamp(start + duration))
+            day = "" if first.date() == today else first.strftime("%d.%m ")
+            parts.append(f"{day}{first:%H:%M:%S}–{last:%H:%M:%S}")
+        return ", ".join(parts)
 
     async def _async_wait(
         self, camera_id: int, job_id: int, job: dict[str, Any]
@@ -311,13 +358,13 @@ class ProstoCamArchive:
             try:
                 job = await self.async_job(camera_id, job_id)
             except ProstoCamRejectedError as err:
-                raise command_error(err) from err
+                raise command_error(err, self.stats["error_codes"]) from err
             except ProstoCamError as err:
                 # A lost answer: the job goes on at the server, read it again.
                 LOGGER.debug("ProstoCAM export %s not read (%s)", job_id, err)
                 if isinstance(err, ProstoCamAuthError | ProstoCamScopeError):
                     self._failed(err)
-                    raise command_error(err) from err
+                    raise command_error(err, self.stats["error_codes"]) from err
         return job
 
     async def async_job(self, camera_id: int, job_id: int) -> dict[str, Any]:
@@ -348,13 +395,6 @@ class ProstoCamArchive:
 
     def _result(self, camera_id: int, job_id: int, job: dict[str, Any]) -> dict[str, Any]:
         state = _str(job.get("state"))
-        if state == "failed":
-            self.stats["exports_failed"] += 1
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="export_failed",
-                translation_placeholders={"error": _str(job.get("error_code")) or "failed"},
-            )
         url = self.download_url(job) if state == "ready" else None
         device = self.hub.device_of(camera_id)
         result: dict[str, Any] = {

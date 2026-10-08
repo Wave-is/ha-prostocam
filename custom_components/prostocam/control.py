@@ -32,7 +32,7 @@ import uuid
 from homeassistant.components import persistent_notification
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -84,6 +84,7 @@ from .const import (
     SYNC_ECHO_WINDOW,
     TRIGGERED_HOLD,
 )
+from .errors import command_error
 from .words import alarm_label
 
 if TYPE_CHECKING:
@@ -112,28 +113,6 @@ def _int(value: Any) -> int | None:
         return int(value)
     return None
 
-
-def command_error(err: ProstoCamError) -> HomeAssistantError:
-    """An error of a command for the person who pressed it (the server phrase when there is one)."""
-    if isinstance(err, ProstoCamScopeError):
-        return HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="scope_missing",
-            translation_placeholders={"message": err.message or str(err.code)},
-        )
-    if isinstance(err, ProstoCamAuthError):
-        return HomeAssistantError(translation_domain=DOMAIN, translation_key="token_invalid")
-    if isinstance(err, ProstoCamRejectedError) and err.message:
-        return HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="refused",
-            translation_placeholders={"message": err.message},
-        )
-    return HomeAssistantError(
-        translation_domain=DOMAIN,
-        translation_key="request_failed",
-        translation_placeholders={"error": str(err)},
-    )
 
 
 class ProstoCamControl:
@@ -181,6 +160,7 @@ class ProstoCamControl:
             "mute_errors": 0,
             "deterrence_errors": 0,
             "ai_checks": 0,
+            "error_codes": {},
         }
 
     # ------------------------------------------------------------- signals
@@ -421,7 +401,7 @@ class ProstoCamControl:
     ) -> dict[str, Any]:
         """Change the ProstoCAM arming; raises `HomeAssistantError` with the reason."""
         if state not in ARMING_STATES:
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="arming_state_unknown",
                 translation_placeholders={"state": state},
@@ -444,13 +424,13 @@ class ProstoCamControl:
             if err.code in (ERROR_VERSION_CONFLICT, ERROR_ECHO_SUPPRESSED):
                 # Home Assistant acted on a stale state: take ours, do not repeat.
                 await self.async_refresh_arming()
-                raise HomeAssistantError(
+                raise ServiceValidationError(
                     translation_domain=DOMAIN, translation_key="arming_conflict"
                 ) from err
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         except ProstoCamError as err:
             self._failed(SCOPE_ARMING, err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         arming = data.get("arming")
         if isinstance(arming, dict):
             self._apply_arming(arming)
@@ -527,7 +507,7 @@ class ProstoCamControl:
             title=self.entry.title or DEFAULT_TITLE,
             notification_id=f"{DOMAIN}_{self.entry.entry_id}_arming_not_ready",
         )
-        return HomeAssistantError(
+        return ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="arming_not_ready",
             translation_placeholders={"cameras": listed},
@@ -697,7 +677,7 @@ class ProstoCamControl:
                 data = await self.client.async_call("put", path, {"minutes": minutes})
         except ProstoCamError as err:
             self._failed(SCOPE_ACTIONS, err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         self._apply_mute(camera_id, data)
         if minutes:
             self._state(camera_id).mute_choice = choice
@@ -734,7 +714,7 @@ class ProstoCamControl:
             )
         except ProstoCamError as err:
             self._failed(SCOPE_ACTIONS, err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
 
     async def async_test_alarm(self, camera_id: int) -> dict[str, Any]:
         """A test alarm of the camera through every channel of the subscriber."""
@@ -742,7 +722,7 @@ class ProstoCamControl:
             return await self.client.async_call("post", f"/cameras/{camera_id}/test-alarm")
         except ProstoCamError as err:
             self._failed(SCOPE_ACTIONS, err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
 
     async def async_verify_ai(
         self,
@@ -755,7 +735,7 @@ class ProstoCamControl:
         if event_id is None and camera_id is not None:
             event_id = self._state(camera_id).last_event_id
         if event_id is None:
-            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="no_event")
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="no_event")
         body: dict[str, Any] = {"spend_credit": True} if spend_credit else {}
         headers = {"Idempotency-Key": uuid.uuid4().hex} if spend_credit else None
         try:
@@ -764,15 +744,15 @@ class ProstoCamControl:
             )
         except ProstoCamRejectedError as err:
             if err.code == ERROR_AI_CONFIRM:
-                raise HomeAssistantError(
+                raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="ai_confirm",
                     translation_placeholders={"message": _price_phrase(err.message)},
                 ) from err
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         except ProstoCamError as err:
             self._failed(SCOPE_ACTIONS, err)
-            raise command_error(err) from err
+            raise command_error(err, self.stats["error_codes"]) from err
         self.stats["ai_checks"] += 1
         camera = _int(data.get("camera_id"))
         if camera is not None:
@@ -816,7 +796,7 @@ class ProstoCamControl:
             if err.translation_key != "ai_confirm":
                 raise
             self._ai_confirm[camera_id] = now + AI_CONFIRM_WINDOW
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="ai_press_again",
                 translation_placeholders={

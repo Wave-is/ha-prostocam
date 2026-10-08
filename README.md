@@ -190,6 +190,9 @@ actions:
   Assistant попросить новий код; **Завантажити діагностику** (сторінка інтеграції → ⋮) — без токенів, адрес ефіру,
   посилань на файли й текстів питань. Ефір не відкривається через WebRTC — камера сама перейде на HLS; HLS теж ні —
   перевірте, що камера «на зв'язку» (діагностичний датчик).
+- **Помилки дій (з 1.0.1).** Відмова сервера — людська фраза мовою Home Assistant («за цей час запису немає —
+  найближчий запис: …», «кредитів ШІ не вистачає»), без трасування в журналі; невідомий код — загальна фраза, сам код —
+  у діагностиці (`error_codes`).
 - **Видалення.** Налаштування → Пристрої та служби → ProstoCAM → ⋮ → Видалити; потім у кабінеті ProstoCAM
   «Відключити» — токен перестане діяти. Через HACS видаліть і саму інтеграцію.
 
@@ -380,6 +383,9 @@ actions:
   for a new code; **Download diagnostics** (integration page → ⋮) — without tokens, live addresses, file links or the
   text of questions. Live video does not open over WebRTC — the camera falls back to HLS itself; HLS does not either —
   check that the camera is online (the diagnostic sensor).
+- **Action errors (since 1.0.1).** A refusal of the server is a plain phrase in the language of Home Assistant ("there is
+  no recording for this time — the nearest recording: …", "not enough AI credits"), with no traceback in the log; an
+  unknown code gets a general phrase, the code itself is in the diagnostics (`error_codes`).
 - **Removal.** Settings → Devices & services → ProstoCAM → ⋮ → Delete; then Disconnect in the ProstoCAM web account — the
   token stops working. Remove the integration itself in HACS.
 

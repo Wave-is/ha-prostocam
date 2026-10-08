@@ -245,7 +245,73 @@
       "message": "The ProstoCAM server does not support this yet (it needs protocol 4). Try again after the server is updated."
     },
     "export_failed": {
-      "message": "ProstoCAM could not prepare the clip: {error}."
+      "message": "ProstoCAM could not prepare the clip. Order it again; if it happens again, the reason code is in the diagnostics of the integration."
+    },
+    "export_no_recording": {
+      "message": "There is no recording for this time: the camera recorded nothing. Retrying will not help — choose a time that has a recording."
+    },
+    "export_no_recording_nearest": {
+      "message": "There is no recording for this time — the nearest recording: {nearest}."
+    },
+    "export_gaps": {
+      "message": "There is no continuous recording in this range: it is empty or has gaps. Order a shorter clip or another time."
+    },
+    "export_recording_gone": {
+      "message": "The recording of this range disappeared while the clip was being prepared (for example, removed by the retention period)."
+    },
+    "export_damaged": {
+      "message": "The recording of this range is damaged and can not be read. Choose a neighbouring range."
+    },
+    "export_encoding_changed": {
+      "message": "The camera changed its codec or resolution in the middle of this range. Order the time before and after the change separately."
+    },
+    "export_cancelled": {
+      "message": "The clip was not prepared: the export was cancelled."
+    },
+    "export_cannot_assemble": {
+      "message": "ProstoCAM can not assemble this clip; retrying will not help. Please tell the ProstoCAM support."
+    },
+    "export_retry": {
+      "message": "ProstoCAM failed while assembling the clip; the recording itself is intact. Order it again."
+    },
+    "ai_credits_insufficient": {
+      "message": "Not enough AI credits for this check. Top up the credits in the ProstoCAM web account."
+    },
+    "rate_limited": {
+      "message": "Too many requests to ProstoCAM. Try again in a minute."
+    },
+    "camera_not_found": {
+      "message": "ProstoCAM does not know this camera or it is not chosen for Home Assistant (web account → Smart Home → Home Assistant)."
+    },
+    "event_not_found": {
+      "message": "ProstoCAM has no such event of this camera."
+    },
+    "export_not_found": {
+      "message": "ProstoCAM no longer has this export; order the clip again."
+    },
+    "account_inactive": {
+      "message": "The ProstoCAM account is suspended; video and recordings come back after payment."
+    },
+    "arming_readiness_unknown": {
+      "message": "ProstoCAM can not tell yet whether the cameras are ready for arming. Try again in a minute."
+    },
+    "already_in_progress": {
+      "message": "ProstoCAM is already doing the same request; wait for its result."
+    },
+    "server_busy": {
+      "message": "ProstoCAM can not do this right now. Try again in a few minutes."
+    },
+    "no_recording": {
+      "message": "There is no recording for this time."
+    },
+    "bridge_disabled": {
+      "message": "Home Assistant is switched off in the ProstoCAM web account (Smart Home → Home Assistant)."
+    },
+    "invalid_request": {
+      "message": "ProstoCAM did not accept the request: {message}"
+    },
+    "refused_unknown": {
+      "message": "ProstoCAM refused the request. The reason code is in the diagnostics of the integration."
     },
     "export_in_future": {
       "message": "The clip must end in the past: choose an earlier start or a shorter duration."

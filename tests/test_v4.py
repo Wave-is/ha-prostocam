@@ -576,7 +576,7 @@ async def test_ask_archive_refusals(
     replies.replies = [(422, {"code": "invalid_body", "message": "Питання задовге"})]
     with pytest.raises(HomeAssistantError) as err:
         await ask(hass)
-    assert err.value.translation_key == "refused"
+    assert err.value.translation_key == "invalid_request"
     assert hub.archive.stats["question_errors"] == 2
 
     replies.replies = [(401, {"code": "token_invalid", "message": "x"})]
@@ -680,6 +680,7 @@ async def setup_export(
     order: Replies,
     status: Replies,
     monkeypatch: pytest.MonkeyPatch,
+    archive: Replies | None = None,
 ) -> Any:
     """An entry whose server takes exports; reads of a job do not wait 5 s."""
     monkeypatch.setattr(const, "EXPORT_POLL", 0)
@@ -687,6 +688,10 @@ async def setup_export(
     def _before(mock: AiohttpClientMocker) -> None:
         mock.post(f"{BASE}/cameras/12/exports", side_effect=order)
         mock.get(f"{BASE}/cameras/12/exports/942", side_effect=status)
+        mock.get(
+            f"{BASE}/cameras/12/archive",
+            side_effect=archive or Replies((404, {"code": "no_recording", "message": "Запису немає"})),
+        )
 
     return await setup_v4(hass, aioclient_mock, config_entry, mock_server, before=_before)
 
@@ -835,13 +840,13 @@ async def test_export_clip_refusals(
 
     with pytest.raises(HomeAssistantError) as err:
         await export(hass, past)
-    assert err.value.translation_key == "export_failed"
-    assert err.value.translation_placeholders == {"error": "no_recording"}
+    assert err.value.translation_key == "export_no_recording"
+    assert err.value.translation_placeholders is None
 
     status.replies = [(404, {"code": "export_not_found", "message": "Завдання немає"})]
     with pytest.raises(HomeAssistantError) as err:
         await export(hass, past)
-    assert err.value.translation_key == "refused"
+    assert err.value.translation_key == "export_not_found"
 
     status.replies = [(401, {"code": "token_invalid", "message": "x"})]
     with pytest.raises(HomeAssistantError) as err:
