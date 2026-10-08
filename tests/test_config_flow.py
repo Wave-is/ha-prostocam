@@ -288,3 +288,54 @@ async def test_user_flow_server_refusals(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": error}
+
+
+async def test_reconfigure_moves_to_another_server(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Reconfigure: a new code on another server, the same connection (no new entry)."""
+    other = "https://cam.example.org"
+    aioclient_mock.post(f"{other}/v2/smart-home/ha/pair", json=_pair_reply(42))
+    result = await config_entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: "ABCD1234", CONF_SERVER: "not a server"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {CONF_SERVER: "invalid_server"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: "ABCD", CONF_SERVER: other}
+    )
+    assert result["errors"] == {CONF_CODE: "invalid_code"}
+
+    with patch("custom_components.prostocam.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CODE: "ABCD1234", CONF_SERVER: f"{other}/"}
+        )
+        await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data[CONF_SERVER] == other
+    assert config_entry.data[CONF_TOKEN] == NEW_TOKEN
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_reconfigure_wrong_account(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+) -> None:
+    """A code of another connection does not take this one over."""
+    aioclient_mock.post(PAIR_URL, json=_pair_reply(77))
+    result = await config_entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CODE: "ABCD1234", CONF_SERVER: DEFAULT_SERVER}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_account"
+    assert config_entry.data[CONF_TOKEN] == TOKEN

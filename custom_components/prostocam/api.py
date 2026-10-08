@@ -143,9 +143,11 @@ def raise_for_reply(status: int, text: str, headers: Any) -> dict[str, Any]:
     if status == 426:
         raise ProstoCamOutdatedError(f"HTTP {status}")
     if status == 429:
-        raise ProstoCamRateLimitedError(
+        limited = ProstoCamRateLimitedError(
             " ".join(part for part in ("HTTP 429", code) if part)
         )
+        limited.code = code
+        raise limited
     if status == 503 and code:
         raise ProstoCamUnavailableError(code, _retry_after(headers))
     if status >= 500:
