@@ -80,8 +80,8 @@
 того в Home Assistant не буде, а в **Налаштування → Ремонт** з'явиться підказка, де дати доступ. Пам'ятайте: камери
 побачить кожен, хто має доступ до вашого Home Assistant.
 
-Ефір відкривається у звичайній картці камери (HLS, затримка кілька секунд). WebRTC (go2rtc) для цих камер поки не
-пропонується — він обривав би ефір через 5 хвилин.
+Ефір відкривається у звичайній картці камери: з 1.0 — через **WebRTC** (затримка менше секунди) у камер, для яких
+сервер ProstoCAM його ввімкнув, у решти — HLS (затримка кілька секунд). go2rtc для цих камер не використовується.
 
 ### «Медіа», охорона, кнопки і рахунок (з 0.3)
 
@@ -120,6 +120,78 @@
 повідомлення.
 
 Пам'ятайте: охороною, кнопками й записами зможе користуватися кожен, хто має доступ до вашого Home Assistant.
+
+### WebRTC, «Спитати архів», «Вивантажити кліп» (з 1.0)
+
+Потрібен сервер ProstoCAM із протоколом 4; нових позначок доступу не треба (WebRTC — це «Ефір», архів і кліпи — «Записи»).
+
+- **WebRTC.** Камера, для якої сервер увімкнув WebRTC, грає в картці через WebRTC: відео йде від медіавузла ProstoCAM
+  прямо в браузер, Home Assistant лише передає пропозицію й відповідь. Не вдалося (вузол вимкнений, кодек H.265, мережа)
+  — картка покаже помилку, а камера сама перейде на HLS: до наступного читання каталогу (5 хв) або на годину. Звук AAC
+  браузер по WebRTC не грає — відео без звуку. Запис і кадри працюють як раніше.
+- **Спитати архів** — дія `prostocam.ask_archive` з відповіддю: питання простими словами
+  («коли сьогодні хтось підходив до хвіртки?», «машини вчора ввечері») → `answer` (коротка фраза мовою Home Assistant:
+  «Знайшов 3 події, остання о 14:05 — Вхід, людина») і `events` (камера, час, вид, `snapshot_url` — кадр через ваш
+  Home Assistant, `clip` — кліп у «Медіа»). Шукає той самий пошук, що рядок пошуку кабінету: ШІ-кредити не витрачаються.
+  Чого сервер не зрозумів — названо в `unsupported` і у фразі («Не зрозумів частину питання: …»), це не «нічого не було».
+- **Assist.** Намір `ProstoCamAskArchive` (слот `question`) бачать голосові агенти з LLM; для звичайного Assist додайте
+  речення в `config/custom_sentences/uk/prostocam.yaml`:
+
+  ```yaml
+  language: "uk"
+  intents:
+    ProstoCamAskArchive:
+      data:
+        - sentences:
+            - "знайди в архіві {question}"
+            - "спитай архів {question}"
+  lists:
+    question:
+      wildcard: true
+  ```
+- **Вивантажити кліп** — дія `prostocam.export_clip`: камера, початок (час Home Assistant), тривалість 1…600 с,
+  «чекати файл». Те саме завдання, що «Вивантажити» в кабінеті: Home Assistant чекає готовності (до 5 хвилин) і повертає
+  `url` (коротке одноразове посилання — брати безпосередньо перед надсиланням), `sha256`, `size_bytes`, `expires_at`
+  і `media_content_id`; та сама інформація — у події `prostocam_export_ready`. Вивантаження видно в
+  **Медіа → ProstoCAM → камера → Вивантажені кліпи**; кожне відтворення бере свіже посилання.
+- **Змінити підключення** (Налаштування → Пристрої та служби → ProstoCAM → ⋮ → Переналаштувати): інший сервер або новий
+  код для того самого підключення; датчики, камери й автоматизації лишаються.
+
+**Приклад автоматизації:** тривога «людина» вночі → вивантажити 60 с з моменту тривоги й надіслати посилання:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: prostocam_alarm
+    event_data: { event_type: person }
+actions:
+  - action: prostocam.export_clip
+    data:
+      camera: camera.vkhid
+      start: "{{ (now() - timedelta(seconds=10)).isoformat() }}"
+      duration: 60
+    response_variable: clip
+  - action: notify.mobile_app_phone
+    data:
+      message: "Кліп готовий: {{ clip.url }} (SHA-256 {{ clip.sha256[:12] }}…)"
+```
+
+### Як оновлюються дані, обмеження, якщо щось не так
+
+- **Оновлення.** Тривоги, стан камер і охорони приходять одразу (живий канал `/v2/stream`); каталог камер — раз на
+  5 хвилин; «Не турбувати» — раз на 5 хвилин; виходи відлякування — раз на добу; рахунок — раз на 15 хвилин. Події
+  датчиків Home Assistant ідуть на сервер одразу, пульс — раз на хвилину.
+- **Пристрої.** Будь-які камери ProstoCAM (Hikvision, Dahua, ONVIF, RTSP…) — Home Assistant бачить їх через сервер, а не
+  напряму; будь-які охоронні датчики Home Assistant.
+- **Обмеження.** WebRTC — лише там, де сервер його ввімкнув; без звуку; H.265 браузер може не прийняти (тоді HLS).
+  Одночасно — до 16 камер в ефірі на підключення. Запис і вивантаження — у межах тарифу й терміну зберігання. Сервер
+  протоколу нижче 4 — без WebRTC, питань до архіву й вивантажень (інтеграція працює як 0.3).
+- **Якщо щось не так.** «Ремонт» підказує, де дати доступ або оновити інтеграцію; «Перепідключити» у кабінеті → Home
+  Assistant попросить новий код; **Завантажити діагностику** (сторінка інтеграції → ⋮) — без токенів, адрес ефіру,
+  посилань на файли й текстів питань. Ефір не відкривається через WebRTC — камера сама перейде на HLS; HLS теж ні —
+  перевірте, що камера «на зв'язку» (діагностичний датчик).
+- **Видалення.** Налаштування → Пристрої та служби → ProstoCAM → ⋮ → Видалити; потім у кабінеті ProstoCAM
+  «Відключити» — токен перестане діяти. Через HACS видаліть і саму інтеграцію.
 
 ---
 
@@ -195,8 +267,8 @@ No new code is needed: within a minute Home Assistant adds or removes the camera
 does not appear, and **Settings → Repairs** says where to give the access. Remember: everyone with access to your Home
 Assistant sees these cameras.
 
-Live video opens in the usual camera card (HLS, a few seconds of delay). WebRTC (go2rtc) is not offered for these cameras
-yet — it would cut the stream after 5 minutes.
+Live video opens in the usual camera card: since 1.0 over **WebRTC** (below a second of delay) for the cameras the
+ProstoCAM server switched it on for, HLS (a few seconds) for the others. go2rtc is not used for these cameras.
 
 ### Media, arming, buttons and the account (since 0.3)
 
@@ -237,6 +309,80 @@ updates the same notification.
 
 Remember: everyone with access to your Home Assistant can use the arming, buttons and recordings you allow.
 
+### WebRTC, ask the archive, export a clip (since 1.0)
+
+Needs a ProstoCAM server of protocol 4; no new access ticks (WebRTC is "Live video", questions and clips are "Recordings").
+
+- **WebRTC.** A camera the server switched WebRTC on for plays over WebRTC in the card: the video goes from the ProstoCAM
+  media node straight to the browser, Home Assistant only passes the offer and the answer. If it fails (switched off on
+  the node, an H.265 codec, the network) the card shows the error and the camera falls back to HLS by itself — until the
+  next catalog read (5 min) or for an hour. Browsers do not play AAC over WebRTC: the video has no sound. Recording and
+  snapshots work as before.
+- **Ask the archive** — the action `prostocam.ask_archive` with a response: a question in plain words ("when did someone
+  come to the gate today?", "cars yesterday evening") → `answer` (a short phrase in the language of Home Assistant:
+  "Found 3 events, the last one at 14:05: Gate, person") and `events` (camera, time, kind, `snapshot_url` — the frame
+  through your Home Assistant, `clip` — the clip in Media). The same search as the search line of the web account: no
+  AI credits are spent. What the server did not understand is named in `unsupported` and in the phrase — that is not
+  "nothing happened".
+- **Assist.** LLM voice agents see the intent `ProstoCamAskArchive` (slot `question`); for the plain Assist add sentences
+  to `config/custom_sentences/en/prostocam.yaml`:
+
+  ```yaml
+  language: "en"
+  intents:
+    ProstoCamAskArchive:
+      data:
+        - sentences:
+            - "search the archive for {question}"
+            - "ask the archive {question}"
+  lists:
+    question:
+      wildcard: true
+  ```
+- **Export a clip** — the action `prostocam.export_clip`: camera, start (Home Assistant time), duration 1…600 s, "wait
+  for the file". The same job as "Export" in the web account: Home Assistant waits until it is ready (up to 5 minutes)
+  and returns `url` (a short-lived one-time link — take it right before sending), `sha256`, `size_bytes`,
+  `expires_at` and `media_content_id`; the same comes as the event `prostocam_export_ready`. Exports are listed in
+  **Media → ProstoCAM → camera → Exported clips**; every playback takes a fresh link.
+- **Reconfigure** (Settings → Devices & services → ProstoCAM → ⋮ → Reconfigure): another server or a new code for the
+  same connection; sensors, cameras and automations stay.
+
+**Example automation:** a "person" alarm → export 60 s from the alarm and send the link:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: prostocam_alarm
+    event_data: { event_type: person }
+actions:
+  - action: prostocam.export_clip
+    data:
+      camera: camera.gate
+      start: "{{ (now() - timedelta(seconds=10)).isoformat() }}"
+      duration: 60
+    response_variable: clip
+  - action: notify.mobile_app_phone
+    data:
+      message: "The clip is ready: {{ clip.url }} (SHA-256 {{ clip.sha256[:12] }}…)"
+```
+
+### Data updates, limitations, troubleshooting, removal
+
+- **Data updates.** Alarms, camera status and arming arrive at once (the live channel `/v2/stream`); the camera catalog
+  every 5 minutes; do not disturb every 5 minutes; deterrence outputs once a day; the account every 15 minutes. Sensor
+  events of Home Assistant go to the server at once, the heartbeat every minute.
+- **Supported devices.** Any camera of ProstoCAM (Hikvision, Dahua, ONVIF, RTSP…) — Home Assistant sees it through the
+  server, not directly; any security sensor of Home Assistant.
+- **Known limitations.** WebRTC only where the server switched it on; no sound; a browser may refuse H.265 (then HLS).
+  Up to 16 cameras live at a time per connection. Recordings and exports within the tariff and its retention. A server of
+  a protocol below 4 has no WebRTC, questions or exports (the integration works as 0.3).
+- **Troubleshooting.** Repairs say where to give access or to update; Reconnect in the web account → Home Assistant asks
+  for a new code; **Download diagnostics** (integration page → ⋮) — without tokens, live addresses, file links or the
+  text of questions. Live video does not open over WebRTC — the camera falls back to HLS itself; HLS does not either —
+  check that the camera is online (the diagnostic sensor).
+- **Removal.** Settings → Devices & services → ProstoCAM → ⋮ → Delete; then Disconnect in the ProstoCAM web account — the
+  token stops working. Remove the integration itself in HACS.
+
 ### Reliability
 
 Events that can not be delivered (no internet, server maintenance) stay in a queue (up to 1000 events) and are retried with a
@@ -250,8 +396,11 @@ Tests use [pytest-homeassistant-custom-component](https://github.com/MatthewFlam
 
 ```bash
 pip install -r requirements_test.txt
-pytest
+pytest   # fails under 95 % coverage (pyproject.toml)
 ```
+
+The rules of the Home Assistant Integration Quality Scale and where the integration stands are listed in
+[`quality_scale.yaml`](custom_components/prostocam/quality_scale.yaml) (target: Gold).
 
 ## License
 
