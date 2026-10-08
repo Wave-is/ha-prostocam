@@ -84,6 +84,7 @@ from .const import (
     SYNC_ECHO_WINDOW,
     TRIGGERED_HOLD,
 )
+from .words import alarm_label
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -766,7 +767,7 @@ class ProstoCamControl:
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="ai_confirm",
-                    translation_placeholders={"message": err.message or ""},
+                    translation_placeholders={"message": _price_phrase(err.message)},
                 ) from err
             raise command_error(err) from err
         except ProstoCamError as err:
@@ -790,6 +791,11 @@ class ProstoCamControl:
                 "status": data.get("status"),
                 "classification": data.get("classification"),
                 "confidence": data.get("confidence"),
+                "label": alarm_label(
+                    self.hass.config.language,
+                    data.get("classification"),
+                    data.get("confidence"),
+                ),
                 "words": data.get("words"),
                 "phrase": data.get("phrase"),
                 "snapshot": self.cameras.snapshot_path(event_id),
@@ -838,3 +844,16 @@ class ProstoCamControl:
             "account_stage": (self.account or {}).get("stage"),
             "stats": dict(self.stats),
         }
+
+
+def _price_phrase(message: str | None) -> str:
+    """The price of the AI check for a human, without the wording of the API.
+
+    A server before 1372 says "…(1): send spend_credit: true to confirm": the
+    name of a request field means nothing to the person at the button, and
+    the integration says itself how to confirm (press again / the action field).
+    """
+    text = (message or "").strip()
+    if "spend_credit" in text:
+        text = text.split(":", 1)[0].strip()
+    return text.rstrip(".")

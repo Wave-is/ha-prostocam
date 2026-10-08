@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import json
 from typing import Any
 
@@ -17,6 +18,7 @@ from .const import (
     SSE_READ_TIMEOUT,
     VERSION,
 )
+from .words import language_of
 
 
 class ProstoCamError(Exception):
@@ -160,12 +162,21 @@ class ProstoCamClient:
     """Talks to `/v2/smart-home/ha/*` and `/v2/stream` of a ProstoCAM server."""
 
     def __init__(
-        self, session: aiohttp.ClientSession, server: str, token: str | None = None
+        self,
+        session: aiohttp.ClientSession,
+        server: str,
+        token: str | None = None,
+        language: Callable[[], str | None] | None = None,
     ) -> None:
-        """Create a client; without a token only pairing is possible."""
+        """Create a client; without a token only pairing is possible.
+
+        `language` gives the language of Home Assistant at the moment of each
+        request: the server answers its phrases (refusals, "no clip") in it.
+        """
         self._session = session
         self._server = server.rstrip("/")
         self._token = token
+        self._language = language
 
     @property
     def server(self) -> str:
@@ -240,10 +251,19 @@ class ProstoCamClient:
         if not self._token:
             raise ProstoCamAuthError("no token")
         return {
-            "Accept": accept,
-            "User-Agent": f"HomeAssistant-ProstoCAM/{VERSION}",
+            **self._plain_headers(accept),
             "Authorization": f"Bearer {self._token}",
         }
+
+    def _plain_headers(self, accept: str) -> dict[str, str]:
+        """Headers of every request, with or without the token."""
+        headers = {
+            "Accept": accept,
+            "User-Agent": f"HomeAssistant-ProstoCAM/{VERSION}",
+        }
+        if self._language is not None:
+            headers["Accept-Language"] = language_of(self._language())
+        return headers
 
     async def async_call(
         self,
@@ -273,10 +293,7 @@ class ProstoCamClient:
         if auth:
             headers = self._headers("application/json")
         else:
-            headers = {
-                "Accept": "application/json",
-                "User-Agent": f"HomeAssistant-ProstoCAM/{VERSION}",
-            }
+            headers = self._plain_headers("application/json")
         if extra_headers:
             headers.update(extra_headers)
         try:

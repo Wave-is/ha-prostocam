@@ -211,10 +211,10 @@
       "message": "This camera has had no alarm since Home Assistant started; there is nothing to check."
     },
     "ai_confirm": {
-      "message": "The AI check spends a credit: {message}. Call the action with \"Spend a credit\" switched on."
+      "message": "{message}. Call the action with \"Spend a credit\" switched on."
     },
     "ai_press_again": {
-      "message": "The AI check spends a credit: {message}. Press the button again within {seconds} s to confirm."
+      "message": "{message}. Press the button again within {seconds} s to confirm."
     },
     "entry_not_loaded": {
       "message": "This ProstoCAM connection is not loaded."

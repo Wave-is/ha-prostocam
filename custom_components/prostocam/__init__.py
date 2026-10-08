@@ -32,7 +32,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ProstoCamConfigEntry) -> bool:
     """Start the bridge for a paired ProstoCAM account, then its cameras and controls."""
     client = ProstoCamClient(
-        async_get_clientsession(hass), entry.data[CONF_SERVER], entry.data[CONF_TOKEN]
+        async_get_clientsession(hass),
+        entry.data[CONF_SERVER],
+        entry.data[CONF_TOKEN],
+        language=lambda: hass.config.language,
     )
     bridge = ProstoCamBridge(hass, entry, client)
     try:

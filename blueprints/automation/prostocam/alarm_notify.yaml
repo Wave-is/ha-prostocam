@@ -91,6 +91,8 @@ actions:
       title: "📷 {{ event.camera_name }}"
       message: >-
         {% if trigger.id == 'verdict' %}ШІ: {{ event.words or event.phrase }}
+        {%- if event.label %} ({{ event.label }}){% endif %}
+        {%- elif event.label %}{{ event.label }}
         {%- else %}{{ words.get(event.event_type, event.classification) }}
         {%- if event.confidence %} · {{ (event.confidence * 100) | round }} %{% endif %}
         {%- endif %}

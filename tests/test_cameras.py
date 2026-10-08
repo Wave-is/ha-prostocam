@@ -605,10 +605,10 @@ async def test_heartbeat_reports_the_version(
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """The heartbeat carries the version of the integration (0.3.0)."""
+    """The heartbeat carries the version of the integration (0.3.1)."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
     heartbeat = calls_to(aioclient_mock, "heartbeat")[0]
-    assert heartbeat[2]["client_version"] == VERSION == "0.3.0"
+    assert heartbeat[2]["client_version"] == VERSION == "0.3.1"
 
 
 async def test_event_entity_fires_bus_state_change(

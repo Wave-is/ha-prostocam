@@ -34,67 +34,12 @@ from .const import (
     SCOPE_ARCHIVE,
     SCOPE_EVENTS,
 )
+from .words import alarm_label, word
 
 if TYPE_CHECKING:
     from .cameras import ProstoCamCameras
 
 HLS_MIME = "application/vnd.apple.mpegurl"
-
-# Folder and event names of the media browser (it has no translations of its own).
-WORDS: dict[str, dict[str, str]] = {
-    "en": {
-        "events": "Events",
-        "archive": "Archive",
-        "today": "Today",
-        "motion": "Motion",
-        "person": "Person",
-        "vehicle": "Vehicle",
-        "animal": "Animal",
-        "other": "Event",
-        "test": "Test alarm",
-        "no_clip": "There is no clip of this event",
-        "no_record": "There is no record for this hour",
-    },
-    "uk": {
-        "events": "Події",
-        "archive": "Архів",
-        "today": "Сьогодні",
-        "motion": "Рух",
-        "person": "Людина",
-        "vehicle": "Транспорт",
-        "animal": "Тварина",
-        "other": "Подія",
-        "test": "Тестова тривога",
-        "no_clip": "Кліпу цієї події немає",
-        "no_record": "Запису за цю годину немає",
-    },
-    "ru": {
-        "events": "События",
-        "archive": "Архив",
-        "today": "Сегодня",
-        "motion": "Движение",
-        "person": "Человек",
-        "vehicle": "Транспорт",
-        "animal": "Животное",
-        "other": "Событие",
-        "test": "Тестовая тревога",
-        "no_clip": "Клипа этого события нет",
-        "no_record": "Записи за этот час нет",
-    },
-    "bg": {
-        "events": "Събития",
-        "archive": "Архив",
-        "today": "Днес",
-        "motion": "Движение",
-        "person": "Човек",
-        "vehicle": "Превозно средство",
-        "animal": "Животно",
-        "other": "Събитие",
-        "test": "Тестова аларма",
-        "no_clip": "Няма клип на това събитие",
-        "no_record": "Няма запис за този час",
-    },
-}
 
 
 async def async_get_media_source(hass: HomeAssistant) -> MediaSource:
@@ -126,8 +71,7 @@ class ProstoCamMediaSource(MediaSource):
     # ---------------------------------------------------------------- helpers
 
     def _word(self, key: str) -> str:
-        language = (self.hass.config.language or "en").split("-")[0]
-        return WORDS.get(language, WORDS["en"]).get(key, WORDS["en"].get(key, key))
+        return word(self.hass.config.language, key)
 
     def _hubs(self) -> dict[str, ProstoCamCameras]:
         hubs: dict[str, ProstoCamCameras] = {}
@@ -299,11 +243,10 @@ class ProstoCamMediaSource(MediaSource):
         kind = event.get("verdict") or event.get("type") or "other"
         if event.get("test") is True:
             kind = "test"
-        words = self._word(kind) if isinstance(kind, str) and kind in WORDS["en"] else str(kind)
-        confidence = event.get("verdict_confidence")
-        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-            words = f"{words} {round(confidence * 100)} %"
-        return f"{clock} · {words}"
+        label = alarm_label(
+            self.hass.config.language, str(kind), event.get("verdict_confidence")
+        )
+        return f"{clock} · {label}"
 
     async def _events(
         self, hub: ProstoCamCameras, camera_id: int, start: datetime, end: datetime

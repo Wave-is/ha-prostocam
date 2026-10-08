@@ -32,6 +32,7 @@ from custom_components.prostocam.const import (
     ISSUE_ACCOUNT_STAGE,
     ISSUE_MISSING_ACCESS,
 )
+from custom_components.prostocam.control import _price_phrase
 from custom_components.prostocam.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -184,7 +185,7 @@ def feed(hub: Any, text: str) -> None:
             hub.handle_event(event)
 
 
-def alarm_with_links(event_id: int = 456) -> str:
+def alarm_with_links(event_id: int = 456, confidence: float = 0.91) -> str:
     """`alarm` of the integration channel with the links of protocol 3."""
     return frame(
         "alarm",
@@ -196,7 +197,7 @@ def alarm_with_links(event_id: int = 456) -> str:
                 "camera_location": "Front yard",
                 "event_id": event_id,
                 "classification": "person",
-                "confidence": 0.91,
+                "confidence": confidence,
                 "created_at": "2026-10-08T01:00:05+03:00",
                 "read": False,
                 "test": False,
@@ -1073,3 +1074,56 @@ async def test_heartbeat_and_protocol(
     with patch("custom_components.prostocam.bridge.LOGGER") as logger:
         await setup_v3(hass, aioclient_mock, config_entry, mock_server)
     assert not any("update ProstoCAM" in str(call) for call in logger.warning.call_args_list)
+
+
+# ------------------------------------------------------- 0.3.1: language and labels
+
+
+async def test_requests_speak_the_language_of_home_assistant(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """Every request carries `Accept-Language` of HA: the server phrases come in it."""
+    hass.config.language = "ru"
+    await setup_v3(hass, aioclient_mock, config_entry, mock_server)
+    assert calls(aioclient_mock, "get", "/arming")[0][3]["Accept-Language"] == "ru"
+    assert calls(aioclient_mock, "get", "/account")[0][3]["Accept-Language"] == "ru"
+
+    hass.config.language = "pt-BR"
+    await config_entry.runtime_data.cameras.control.async_refresh_account()
+    # A language the server does not speak: English, never the platform default.
+    assert calls(aioclient_mock, "get", "/account")[-1][3]["Accept-Language"] == "en"
+
+
+async def test_alarm_label_has_the_confidence_only_when_measured(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_server: Callable[..., None],
+) -> None:
+    """«Человек · 91 %» from the AI; a camera detection (confidence 0) has no percent."""
+    hass.config.language = "ru"
+    await setup_v3(hass, aioclient_mock, config_entry, mock_server)
+    alarms = async_capture_events(hass, EVENT_ALARM)
+    hub = config_entry.runtime_data.cameras
+    feed(hub, alarm_with_links(456, 0.91))
+    await hass.async_block_till_done()
+    event = hass.states.get(entity(hass, "event", "42_12_alarm"))
+    assert event.attributes["label"] == "Человек · 91 %"
+    assert alarms[-1].data["label"] == "Человек · 91 %"
+
+    feed(hub, alarm_with_links(456, 0.0))
+    await hass.async_block_till_done()
+    event = hass.states.get(entity(hass, "event", "42_12_alarm"))
+    assert event.attributes["label"] == "Человек"
+    assert alarms[-1].data["label"] == "Человек"
+
+
+def test_price_phrase_drops_the_wording_of_the_api() -> None:
+    """A server before 1372 named the request field; the button never shows it."""
+    old = "Перевірка ШІ витрачає ШІ-кредити (1): надішліть spend_credit: true, щоб підтвердити"
+    assert _price_phrase(old) == "Перевірка ШІ витрачає ШІ-кредити (1)"
+    assert _price_phrase("Перевірка ШІ коштує 1 кредит(ів)") == "Перевірка ШІ коштує 1 кредит(ів)"
+    assert _price_phrase(None) == ""

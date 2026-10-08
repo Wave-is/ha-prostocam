@@ -161,7 +161,11 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
         if not CODE_RE.fullmatch(code):
             errors[CONF_CODE] = "invalid_code"
             return None
-        client = ProstoCamClient(async_get_clientsession(self.hass), server)
+        client = ProstoCamClient(
+            async_get_clientsession(self.hass),
+            server,
+            language=lambda: self.hass.config.language,
+        )
         try:
             data = await client.async_pair(code, HA_VERSION)
         except ProstoCamOutdatedError:

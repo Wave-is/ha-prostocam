@@ -181,7 +181,8 @@ The cameras you allowed appear in Home Assistant by themselves, each as a device
   every 10 s);
 - **Motion**, **Person**, **Vehicle** — binary sensors, on for 30 s after an alarm of the camera of that kind;
 - **Alarm** — an `event` entity for every alarm: type `motion` / `person` / `vehicle` / `animal` / `other` / `test`, the
-  attributes carry the AI class, confidence, event number, time and `test`; handy for automations;
+  attributes carry the AI class, confidence, `label` ("Person · 87 %" in the language of Home Assistant; no percent when
+  the camera detected it by itself and nobody measured it), event number, time and `test`; handy for automations;
 - **Last alarm frame** — an `image` entity: the frame taken when the alarm arrived;
 - **Connectivity** — whether the camera is online for ProstoCAM (diagnostic sensor).
 

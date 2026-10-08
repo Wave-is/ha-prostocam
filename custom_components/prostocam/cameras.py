@@ -90,6 +90,7 @@ from .const import (
     VIEW_EVENT_SNAPSHOT,
 )
 from .sse import SseEvent, SseParser
+from .words import alarm_label
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -771,6 +772,9 @@ class ProstoCamCameras:
         attributes: dict[str, Any] = {
             "classification": classification,
             "confidence": confidence if isinstance(confidence, (int, float)) else None,
+            # «Людина · 87 %» in the language of Home Assistant; without the
+            # percent when nobody measured it (a camera detection sends 0).
+            "label": alarm_label(self.hass.config.language, event_type, confidence),
             "event_id": event_id,
             "alarm_id": _int(alarm.get("id")),
             "created_at": _str(alarm.get("created_at")),
