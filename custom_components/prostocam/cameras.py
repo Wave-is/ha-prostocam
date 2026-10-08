@@ -474,6 +474,20 @@ class ProstoCamCameras:
             configuration_url=self.client.server,
         )
 
+    def device_of(self, camera_id: int) -> dr.DeviceEntry | None:
+        """The Home Assistant device of a camera of this entry (None before its entities exist)."""
+        identifier = (DOMAIN, self.device_identifier(camera_id))
+        return next(
+            (
+                device
+                for device in dr.async_entries_for_config_entry(
+                    dr.async_get(self.hass), self.entry.entry_id
+                )
+                if identifier in device.identifiers
+            ),
+            None,
+        )
+
     def device_identifier(self, camera_id: int) -> str:
         """Identifier of the device of a camera, unique per connection."""
         return f"{self.uid}_camera_{camera_id}"
@@ -797,9 +811,7 @@ class ProstoCamCameras:
             self.control.note_alarm(test=test)
         # For automations and the notification blueprint: at once, the frame
         # is read by the phone through Home Assistant when it shows the message.
-        device = dr.async_get(self.hass).async_get_device(
-            identifiers={(DOMAIN, self.device_identifier(camera_id))}
-        )
+        device = self.device_of(camera_id)
         self.hass.bus.async_fire(
             EVENT_ALARM,
             {

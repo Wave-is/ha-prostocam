@@ -42,11 +42,7 @@ from homeassistant.components.media_source import MediaSourceItem, Unresolvable
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import (
-    device_registry as dr,
-    entity_registry as er,
-    issue_registry as ir,
-)
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from .conftest import BASE, TOKEN
@@ -862,9 +858,7 @@ async def test_do_not_disturb(
     assert hass.states.get(select).state == "off"
 
     hub = config_entry.runtime_data.cameras
-    device = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, hub.device_identifier(12))}
-    )
+    device = hub.device_of(12)
     assert device is not None
     device_id = device.id
     await hass.services.async_call(

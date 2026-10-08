@@ -776,13 +776,7 @@ class ProstoCamControl:
         camera = _int(data.get("camera_id"))
         if camera is not None:
             camera_id = self.cameras.camera_for(camera) or camera_id
-        device = (
-            dr.async_get(self.hass).async_get_device(
-                identifiers={(DOMAIN, self.cameras.device_identifier(camera_id))}
-            )
-            if camera_id is not None
-            else None
-        )
+        device = self.cameras.device_of(camera_id) if camera_id is not None else None
         self.hass.bus.async_fire(
             EVENT_AI_VERDICT,
             {
