@@ -41,6 +41,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import intent
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .conftest import BASE
@@ -92,6 +93,8 @@ class Replies:
         reply = self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
         if isinstance(reply, Exception):
             raise reply
+        if isinstance(reply, dict):
+            return AiohttpClientMockResponse(method, url, **reply)
         status, body = reply
         return AiohttpClientMockResponse(method, url, status=status, json=body)
 
@@ -357,10 +360,7 @@ async def test_catalog_switches_webrtc_on_and_off(
     assert hub.webrtc_built[12] is False
     assert camera_entity(hass, 12).camera_capabilities.frontend_stream_types == {StreamType.HLS}
     # A camera that is gone is not built again.
-    hub.webrtc_built[99] = False
-    hub.cameras[99] = {"features": {"webrtc": True}}
-    hub._check_camera_kind(99)
-    del hub.cameras[99]
+    async_dispatcher_send(hass, hub.signal_camera_kind, 99)
     await hass.async_block_till_done()
     assert entity(hass, "camera", "42_99_camera") is None
 
