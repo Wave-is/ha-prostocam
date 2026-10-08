@@ -36,6 +36,14 @@ jobs:
         run: |
           set -o pipefail
           pytest -v 2>&1 | tee pytest.log
+      - name: Coverage summary
+        if: always()
+        run: |
+          # The coverage table as an annotation (readable without signing in).
+          if [ ! -f pytest.log ]; then exit 0; fi
+          sed -n '/coverage: platform/,/^TOTAL/p' pytest.log | grep -vE '^-+$' > coverage.txt || true
+          total="$(grep '^TOTAL' coverage.txt | awk '{print $NF}')"
+          echo "::notice title=Coverage ${total}::$(sed -e 's/%/%25/g' coverage.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
       - name: Failure summary
         if: failure()
         run: |
