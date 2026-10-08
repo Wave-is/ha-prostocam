@@ -5,11 +5,12 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv, device_registry as dr, intent
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .api import ProstoCamAuthError, ProstoCamClient
+from .archive import AskArchiveIntentHandler, ProstoCamArchive
 from .bridge import ProstoCamBridge
 from .cameras import ProstoCamCameras
 from .const import CONF_SERVER, CONF_TOKEN, DOMAIN, PLATFORMS
@@ -26,6 +27,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Services and the frame proxy exist once, for every connection."""
     async_setup_services(hass)
     async_register_views(hass)
+    intent.async_register(hass, AskArchiveIntentHandler())
     return True
 
 
@@ -47,9 +49,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ProstoCamConfigEntry) ->
     bridge.cameras = cameras
     control = ProstoCamControl(hass, entry, client, bridge, cameras)
     cameras.control = control
+    archive = ProstoCamArchive(hass, cameras)
+    cameras.archive = archive
     entry.runtime_data = bridge
     await cameras.async_start()
     await control.async_start()
+    await archive.async_start()
     if cameras.platforms_needed:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         cameras.platforms_loaded = True
@@ -70,6 +75,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ProstoCamConfigEntry) -
     if cameras is not None:
         if cameras.control is not None:
             await cameras.control.async_stop()
+        if cameras.archive is not None:
+            await cameras.archive.async_stop()
         await cameras.async_stop()
     await bridge.async_stop()
     return True

@@ -155,6 +155,8 @@ class ProstoCamMediaSource(MediaSource):
             )
         if parts[2] == "archive" and len(parts) == 4 and (day := _parse_day(parts[3])):
             return self._browse_hours(base, hub, camera_id, day)
+        if parts[2] == "exports" and len(parts) == 3:
+            return self._browse_exports(base, hub, camera_id)
         raise Unresolvable(f"Unknown ProstoCAM media {identifier}")
 
     def _browse_root(self) -> BrowseMediaSource:
@@ -201,6 +203,12 @@ class ProstoCamMediaSource(MediaSource):
         ]
         if hub.has_control(SCOPE_ARCHIVE):
             children.append(self._folder(f"{base}/archive", self._word("archive")))
+        if hub.archive is not None and hub.archive_enabled and hub.archive.exports.get(camera_id):
+            children.append(
+                self._folder(
+                    f"{base}/exports", self._word("exports"), children_class=MediaClass.VIDEO
+                )
+            )
         return self._folder(base, hub.camera_name(camera_id), children)
 
     async def _browse_events(
@@ -305,6 +313,39 @@ class ProstoCamMediaSource(MediaSource):
             children_class=MediaClass.VIDEO,
         )
 
+    def _browse_exports(
+        self, base: str, hub: ProstoCamCameras, camera_id: int
+    ) -> BrowseMediaSource:
+        jobs = hub.archive.exports.get(camera_id, []) if hub.archive is not None else []
+        children = [
+            BrowseMediaSource(
+                domain=DOMAIN,
+                identifier=f"{base}/export/{job['job_id']}",
+                media_class=MediaClass.VIDEO,
+                media_content_type=MediaType.VIDEO,
+                title=self._export_title(job),
+                can_play=job.get("state") != "failed",
+                can_expand=False,
+            )
+            for job in jobs
+        ]
+        return self._folder(
+            f"{base}/exports",
+            f"{hub.camera_name(camera_id)} · {self._word('exports')}",
+            children,
+            children_class=MediaClass.VIDEO,
+        )
+
+    def _export_title(self, job: dict[str, Any]) -> str:
+        begin = job.get("from")
+        moment = dt_util.parse_datetime(begin) if isinstance(begin, str) else None
+        when = dt_util.as_local(moment).strftime("%Y-%m-%d %H:%M:%S") if moment else f"#{job['job_id']}"
+        duration = job.get("duration_s")
+        title = f"{when} · {duration} s" if isinstance(duration, int) else when
+        if job.get("state") == "failed":
+            title += f" · {self._word('export_failed')}"
+        return title
+
     # ---------------------------------------------------------------- resolve
 
     async def async_resolve_media(self, item: MediaSourceItem) -> PlayMedia:
@@ -318,6 +359,8 @@ class ProstoCamMediaSource(MediaSource):
             raise Unresolvable("ProstoCAM: no access to recordings (archive:read)")
         if parts[2] == "event" and len(parts) == 4 and (event_id := _int(parts[3])):
             return await self._play(hub, f"/events/{event_id}/clip", None, "no_clip")
+        if parts[2] == "export" and len(parts) == 4 and (job_id := _int(parts[3])):
+            return await self._play_export(hub, camera_id, job_id)
         if (
             parts[2] == "archive"
             and len(parts) == 5
@@ -355,3 +398,27 @@ class ProstoCamMediaSource(MediaSource):
         if isinstance(ranges, list) and not ranges:
             raise Unresolvable(self._word(missing))
         return PlayMedia(url, HLS_MIME)
+
+    async def _play_export(
+        self, hub: ProstoCamCameras, camera_id: int, job_id: int
+    ) -> PlayMedia:
+        """The exported file: a fresh one-time link for every playback."""
+        archive = hub.archive
+        if archive is None or not archive.enabled:
+            raise Unresolvable("ProstoCAM: exports need protocol 4 and archive:read")
+        try:
+            job = await archive.async_job(camera_id, job_id)
+        except ProstoCamRejectedError as err:
+            raise Unresolvable(err.message or self._word("export_failed")) from err
+        except ProstoCamError as err:
+            raise Unresolvable(f"ProstoCAM: {err}") from err
+        state = job.get("state")
+        if state == "failed":
+            raise Unresolvable(self._word("export_failed"))
+        url = archive.download_url(job) if state == "ready" else None
+        if url is None:
+            raise Unresolvable(self._word("export_pending"))
+        content_type = job.get("content_type")
+        return PlayMedia(
+            url, content_type if isinstance(content_type, str) and content_type else "video/mp4"
+        )

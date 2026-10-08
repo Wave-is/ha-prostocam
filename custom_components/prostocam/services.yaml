@@ -62,3 +62,48 @@ arm_anyway:
       selector:
         config_entry:
           integration: prostocam
+
+ask_archive:
+  fields:
+    question:
+      required: true
+      example: "коли сьогодні хтось підходив до хвіртки?"
+      selector:
+        text:
+    limit:
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: prostocam
+
+export_clip:
+  fields:
+    camera:
+      required: true
+      selector:
+        entity:
+          integration: prostocam
+          domain: camera
+    start:
+      required: true
+      selector:
+        datetime:
+    duration:
+      required: true
+      default: 60
+      selector:
+        number:
+          min: 1
+          max: 600
+          unit_of_measurement: s
+          mode: box
+    wait:
+      default: true
+      selector:
+        boolean:

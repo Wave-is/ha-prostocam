@@ -10,6 +10,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -19,6 +20,8 @@ from .control import ACCOUNT_SENSORS, ProstoCamControl
 from .entity import ProstoCamAccountEntity
 
 PARALLEL_UPDATES = 0
+# Details of the account next to the balance and the AI credits.
+DIAGNOSTIC_SENSORS = ("tariff", "next_charge", "stage")
 
 
 def _minor(value: Any) -> float | None:
@@ -48,6 +51,8 @@ class ProstoCamAccountSensor(ProstoCamAccountEntity, SensorEntity):
         self._init_account(control, f"account_{key}")
         self.key = key
         self._attr_translation_key = key
+        if key in DIAGNOSTIC_SENSORS:
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
         if key == "ai_credits":
             self._attr_state_class = SensorStateClass.MEASUREMENT
         elif key == "next_charge":

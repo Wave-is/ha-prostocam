@@ -53,10 +53,12 @@ from .api import (
     ProstoCamClient,
     ProstoCamError,
     ProstoCamRateLimitedError,
+    ProstoCamRejectedError,
     ProstoCamScopeError,
     ProstoCamUnavailableError,
 )
 from .const import (
+    ARCHIVE_PROTOCOL,
     CAMERA_SCOPES,
     CAMERAS_PROTOCOL,
     CATALOG_INTERVAL,
@@ -67,6 +69,8 @@ from .const import (
     DETECTIONS,
     DOMAIN,
     ERROR_FRAME_MISSING,
+    ERROR_WEBRTC_FAILED,
+    ERROR_WEBRTC_UNAVAILABLE,
     EVENT_ALARM,
     EVENT_TYPE_OF_CLASS,
     FRAME_CACHE_SIZE,
@@ -88,18 +92,31 @@ from .const import (
     SSE_SAVE_DELAY,
     STORAGE_VERSION,
     VIEW_EVENT_SNAPSHOT,
+    WEBRTC_RETRY,
 )
 from .sse import SseEvent, SseParser
-from .words import alarm_label
+from .words import alarm_label, word
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
+    from .archive import ProstoCamArchive
     from .bridge import ProstoCamBridge
     from .control import ProstoCamControl
 
 # Reasons of `session.closed` after which the channel is opened again at once.
 RECONNECT_AT_ONCE = frozenset({"token_expired", "server_restart"})
+
+
+class WebRtcFailed(Exception):
+    """No WebRTC answer for an offer: the code and a phrase for the card."""
+
+    def __init__(self, code: str, message: str, fallback: bool) -> None:
+        """Remember the code, the phrase and whether the camera falls back to HLS."""
+        super().__init__(code)
+        self.code = code
+        self.message = message
+        self.fallback = fallback
 
 
 def _int(value: Any) -> int | None:
@@ -198,7 +215,18 @@ class ProstoCamCameras:
             "stream_last_close": None,
             "stream_last_error": None,
             "stream_resumed": None,
+            "webrtc_offers": 0,
+            "webrtc_answers": 0,
+            "webrtc_errors": 0,
+            "last_webrtc_error": None,
         }
+        # Protocol 4: which class each camera entity was built as (True = WebRTC)
+        # and the cameras whose WebRTC failed: until when they show HLS
+        # (None = until the next catalog read).
+        self.webrtc_built: dict[int, bool] = {}
+        self.webrtc_off_until: dict[int, float | None] = {}
+        # Protocol 4: the question to the archive and the export of clips.
+        self.archive: ProstoCamArchive | None = None
         self._clock = time.monotonic
         self._stopped = False
         self._reload_scheduled = False
@@ -225,6 +253,11 @@ class ProstoCamCameras:
     def signal_alarm(self, camera_id: int) -> str:
         """Dispatcher signal: an alarm of one camera (event type, attributes)."""
         return f"{DOMAIN}_{self.entry.entry_id}_alarm_{camera_id}"
+
+    @property
+    def signal_camera_kind(self) -> str:
+        """Dispatcher signal: a camera entity must be built anew (WebRTC ↔ HLS)."""
+        return f"{DOMAIN}_{self.entry.entry_id}_camera_kind"
 
     # -------------------------------------------------------------- access
 
@@ -254,6 +287,16 @@ class ProstoCamCameras:
     def has_control(self, scope: str) -> bool:
         """Whether the token may use an area of protocol 3 now."""
         return self.control_enabled and self.has(scope)
+
+    @property
+    def v4_enabled(self) -> bool:
+        """The server speaks protocol 4: own WebRTC, the question, the export."""
+        return self.control_enabled and self.protocol is not None and self.protocol >= ARCHIVE_PROTOCOL
+
+    @property
+    def archive_enabled(self) -> bool:
+        """The question to the archive and the export of clips may be used."""
+        return self.v4_enabled and self.has(SCOPE_ARCHIVE)
 
     @property
     def missing_scopes(self) -> list[str]:
@@ -355,9 +398,11 @@ class ProstoCamCameras:
             return
         now_enabled = protocol is not None and protocol >= CAMERAS_PROTOCOL
         now_control = now_enabled and protocol is not None and protocol >= CONTROL_PROTOCOL
+        now_v4 = now_control and protocol is not None and protocol >= ARCHIVE_PROTOCOL
         if (
             now_enabled == self.enabled
             and now_control == self.control_enabled
+            and now_v4 == self.v4_enabled
             and (not now_enabled or capabilities == self.capabilities)
         ):
             return
@@ -430,6 +475,10 @@ class ProstoCamCameras:
         new_ids = [camera_id for camera_id in cameras if camera_id not in self.cameras]
         self.cameras = cameras
         self.catalog_loaded = True
+        # A WebRTC refused with 503 is tried again after the next catalog.
+        for camera_id, until in list(self.webrtc_off_until.items()):
+            if until is None:
+                del self.webrtc_off_until[camera_id]
         for camera_id, item in cameras.items():
             state = self.states.setdefault(camera_id, CameraState())
             online = item.get("online")
@@ -443,6 +492,9 @@ class ProstoCamCameras:
             self._update_device(camera_id)
             async_dispatcher_send(self.hass, self.signal_update(camera_id))
         self._remove_devices(keep=set(cameras))
+        for camera_id in cameras:
+            if camera_id not in new_ids:
+                self._check_camera_kind(camera_id)
         if new_ids and self.control is not None and self.camera_actions:
             # Which buttons a camera gets depends on its outputs: ask before adding it.
             await self.control.async_refresh_cameras(new_ids)
@@ -530,6 +582,8 @@ class ProstoCamCameras:
                     LOGGER.info("ProstoCAM camera %s is no longer shared; removing it", camera_id)
                     # The device belongs to this connection only.
                     dev_reg.async_remove_device(device.id)
+                    self.webrtc_built.pop(camera_id, None)
+                    self.webrtc_off_until.pop(camera_id, None)
                     if (state := self.states.pop(camera_id, None)) is not None:
                         for unsub in state.reset_unsubs.values():
                             unsub()
@@ -602,6 +656,143 @@ class ProstoCamCameras:
             return None
         self.stats["live_starts"] += 1
         return url
+
+    # ------------------------------------------------------------- WebRTC
+
+    def webrtc_wanted(self, camera_id: int) -> bool:
+        """Whether the camera entity talks WebRTC (else HLS through `stream`).
+
+        Home Assistant offers a camera with its own WebRTC nothing but WebRTC
+        (contract §14.2), so only cameras the server marks `features.webrtc`
+        get it, and a camera whose WebRTC failed shows HLS for a while.
+        """
+        if not self.v4_enabled or not self.has(SCOPE_LIVE):
+            return False
+        features = self.cameras.get(camera_id, {}).get("features")
+        if not isinstance(features, dict) or features.get("webrtc") is not True:
+            return False
+        if features.get("live") is False:
+            return False
+        if camera_id in self.webrtc_off_until:
+            until = self.webrtc_off_until[camera_id]
+            if until is None or self._clock() < until:
+                return False
+            del self.webrtc_off_until[camera_id]
+        return True
+
+    @callback
+    def _check_camera_kind(self, camera_id: int) -> None:
+        """Ask the camera platform to build the entity anew when its kind changed."""
+        built = self.webrtc_built.get(camera_id)
+        if built is not None and built != self.webrtc_wanted(camera_id):
+            LOGGER.info(
+                "ProstoCAM camera %s: %s",
+                camera_id,
+                "switching to HLS" if built else "switching to WebRTC",
+            )
+            async_dispatcher_send(self.hass, self.signal_camera_kind, camera_id)
+
+    def ice_servers(self, camera_id: int) -> list[dict[str, Any]]:
+        """ICE servers the server names for the browser of one camera.
+
+        The media node is ICE-lite with a public address and needs none; a server
+        that adds `ice_servers` (STUN/TURN) to the catalog item gets them used.
+        """
+        raw = self.cameras.get(camera_id, {}).get("ice_servers")
+        servers: list[dict[str, Any]] = []
+        if not isinstance(raw, list):
+            return servers
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            urls = item.get("urls")
+            if isinstance(urls, str):
+                urls = [urls]
+            if not isinstance(urls, list):
+                continue
+            urls = [url for url in urls if isinstance(url, str) and url]
+            if not urls:
+                continue
+            server: dict[str, Any] = {"urls": urls}
+            for key in ("username", "credential"):
+                if isinstance(item.get(key), str):
+                    server[key] = item[key]
+            servers.append(server)
+        return servers
+
+    async def async_webrtc_answer(self, camera_id: int, offer_sdp: str) -> str:
+        """The answer of the media node to the offer of the browser (contract §13.1).
+
+        Every call is a live start, like `…/live`. On a refusal the camera falls
+        back to HLS (`WebRtcFailed.fallback`), except where HLS would fail too.
+        """
+        self.stats["webrtc_offers"] += 1
+        if not self.has(SCOPE_LIVE) or self.bridge.auth_failed:
+            raise self._webrtc_failed(camera_id, "no_access", fallback=False)
+        try:
+            data = await self.client.async_post(
+                f"{PATH_CAMERAS}/{camera_id}/webrtc", {"sdp": offer_sdp}
+            )
+        except ProstoCamScopeError as err:
+            self._deny(SCOPE_LIVE, err)
+            raise self._webrtc_failed(
+                camera_id, err.code or "scope_missing", fallback=False
+            ) from err
+        except ProstoCamAuthError as err:
+            self.bridge.report_auth_failed()
+            raise self._webrtc_failed(camera_id, "token_invalid", fallback=False) from err
+        except ProstoCamRateLimitedError as err:
+            raise self._webrtc_failed(
+                camera_id, err.code or "rate_limited", fallback=False
+            ) from err
+        except ProstoCamRejectedError as err:
+            # 404: the camera is not shared — HLS would not play either.
+            raise self._webrtc_failed(
+                camera_id,
+                err.code or f"http_{err.status}",
+                fallback=err.status != 404,
+                message=err.message,
+            ) from err
+        except ProstoCamError as err:
+            # 503 webrtc_unavailable / live_unavailable, 502 negotiation failed, network.
+            raise self._webrtc_failed(
+                camera_id,
+                err.code or "webrtc_offer_failed",
+                fallback=True,
+                until_catalog=err.code == ERROR_WEBRTC_UNAVAILABLE,
+            ) from err
+        sdp = data.get("sdp")
+        if not isinstance(sdp, str) or not sdp.startswith("v="):
+            raise self._webrtc_failed(camera_id, ERROR_WEBRTC_FAILED, fallback=True)
+        self.stats["webrtc_answers"] += 1
+        return sdp
+
+    def _webrtc_failed(
+        self,
+        camera_id: int,
+        code: str,
+        *,
+        fallback: bool,
+        until_catalog: bool = False,
+        message: str | None = None,
+    ) -> WebRtcFailed:
+        # The code only: never the offer, the answer or an address.
+        self.stats["webrtc_errors"] += 1
+        self.stats["last_webrtc_error"] = code
+        LOGGER.warning(
+            "ProstoCAM camera %s: no WebRTC (%s)%s",
+            camera_id,
+            code,
+            "; it shows HLS now" if fallback else "",
+        )
+        if fallback:
+            self.webrtc_off_until[camera_id] = (
+                None if until_catalog else self._clock() + WEBRTC_RETRY
+            )
+            self._check_camera_kind(camera_id)
+        return WebRtcFailed(
+            code, message or word(self.hass.config.language, "webrtc_failed"), fallback
+        )
 
     async def async_snapshot(self, camera_id: int, *, fresh: bool = False) -> bytes | None:
         """The frame "now" of a camera; cached for 10 s."""
@@ -977,12 +1168,15 @@ class ProstoCamCameras:
                     "online": item.get("online"),
                     "streaming": item.get("streaming"),
                     "features": item.get("features"),
+                    "webrtc": self.webrtc_built.get(camera_id),
+                    "webrtc_off": camera_id in self.webrtc_off_until,
                     "state": self._state_diagnostics(camera_id),
                 }
                 for camera_id, item in sorted(self.cameras.items())
             ],
             "stats": dict(self.stats),
             "control": self.control.diagnostics() if self.control is not None else None,
+            "archive": self.archive.diagnostics() if self.archive is not None else None,
         }
 
     def _state_diagnostics(self, camera_id: int) -> dict[str, Any] | None:

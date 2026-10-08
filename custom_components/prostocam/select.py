@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -58,6 +59,7 @@ class ProstoCamDoNotDisturb(ProstoCamCameraEntity, SelectEntity):
     """Off, for an hour, until the morning; alarms are still written to the feed."""
 
     _attr_translation_key = "do_not_disturb"
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_options = OPTIONS
 
     def __init__(self, hub: ProstoCamCameras, control: ProstoCamControl, camera_id: int) -> None:

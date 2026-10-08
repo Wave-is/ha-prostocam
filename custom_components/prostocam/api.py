@@ -24,6 +24,9 @@ from .words import language_of
 class ProstoCamError(Exception):
     """Base error of the ProstoCAM client."""
 
+    # The error code of the server reply (`webrtc_unavailable` …), when there is one.
+    code: str | None = None
+
 
 class ProstoCamConnectionError(ProstoCamError):
     """The server can not be reached or is busy; the request may be retried."""
@@ -146,7 +149,11 @@ def raise_for_reply(status: int, text: str, headers: Any) -> dict[str, Any]:
     if status == 503 and code:
         raise ProstoCamUnavailableError(code, _retry_after(headers))
     if status >= 500:
-        raise ProstoCamConnectionError(f"HTTP {status}")
+        error = ProstoCamConnectionError(
+            " ".join(part for part in (f"HTTP {status}", code) if part)
+        )
+        error.code = code
+        raise error
     error = body.get("error")
     detail = error if isinstance(error, dict) else body
     raise ProstoCamRejectedError(

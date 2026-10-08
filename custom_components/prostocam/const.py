@@ -9,7 +9,7 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "0.3.1"
+VERSION: Final = "1.0.0"
 
 DEFAULT_SERVER: Final = "https://new.prosto.cam"
 DEFAULT_TITLE: Final = "ProstoCAM"
@@ -39,7 +39,7 @@ KEY_BATTERY_LEVELS: Final = "battery_levels"
 BATTERY_ATTRIBUTES: Final = ("battery_level", "battery")
 KEY_PROTOCOL_VERSION: Final = "protocol_version"
 KEY_RESULTS: Final = "results"
-PROTOCOL_VERSION: Final = 3
+PROTOCOL_VERSION: Final = 4
 
 # Server error codes the integration tells apart.
 ERROR_ALREADY_CONNECTED: Final = "already_connected"
@@ -228,6 +228,31 @@ SERVICE_MUTE: Final = "mute"
 SERVICE_TEST_ALARM: Final = "test_alarm"
 SERVICE_VERIFY_AI: Final = "verify_ai"
 SERVICE_ARM_ANYWAY: Final = "arm_anyway"
+
+# ---------------------------------------------------------------- protocol 4
+# Own WebRTC, "ask the archive", "export a clip" (contract §13–§14). No new areas:
+# WebRTC needs `live:read`, the question and the export `archive:read`.
+ARCHIVE_PROTOCOL: Final = 4
+WEBRTC_PROTOCOL: Final = 4
+# A camera whose WebRTC failed shows HLS for a while (503 = until the next catalog).
+WEBRTC_RETRY: Final = 3600  # seconds after a failed negotiation (codec, network)
+ERROR_WEBRTC_UNAVAILABLE: Final = "webrtc_unavailable"
+ERROR_WEBRTC_FAILED: Final = "webrtc_negotiation_failed"
+ERROR_EXPORT_NOT_FOUND: Final = "export_not_found"
+
+PATH_ASK: Final = "/ask"
+ASK_MAX_LENGTH: Final = 300
+ASK_DEFAULT_LIMIT: Final = 10
+ASK_MAX_LIMIT: Final = 50
+EXPORT_MAX_DURATION: Final = 600  # seconds
+EXPORT_POLL: Final = 5  # seconds between two reads of a job
+EXPORT_WAIT: Final = 300  # seconds the action waits for the file at most
+EXPORTS_KEPT: Final = 20  # jobs per camera listed in Media
+
+EVENT_EXPORT_READY: Final = "prostocam_export_ready"
+SERVICE_ASK_ARCHIVE: Final = "ask_archive"
+SERVICE_EXPORT_CLIP: Final = "export_clip"
+INTENT_ASK_ARCHIVE: Final = "ProstoCamAskArchive"
 
 # Frames of events reach the browser and the companion app through Home Assistant.
 VIEW_EVENT_SNAPSHOT: Final = "/api/prostocam/{entry_id}/events/{event_id}/snapshot.jpg"

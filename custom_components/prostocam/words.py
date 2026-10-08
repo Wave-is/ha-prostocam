@@ -18,6 +18,15 @@ WORDS: dict[str, dict[str, str]] = {
         "test": "Test alarm",
         "no_clip": "There is no clip of this event",
         "no_record": "There is no record for this hour",
+        "webrtc_failed": "WebRTC is not available for this camera now; it plays over HLS",
+        "exports": "Exported clips",
+        "export_pending": "The clip is still being prepared",
+        "export_failed": "ProstoCAM could not prepare this clip",
+        "ask_one": "Found 1 event at {time}: {camera}, {kind}.",
+        "ask_many": "Found {count} {noun}, the last one at {time}: {camera}, {kind}.",
+        "ask_more": "Found at least {count} {noun}, the last one at {time}: {camera}, {kind}.",
+        "ask_nothing": "Nothing found.",
+        "ask_unclear": "I did not understand part of the question: {words}.",
     },
     "uk": {
         "events": "Події",
@@ -31,6 +40,15 @@ WORDS: dict[str, dict[str, str]] = {
         "test": "Тестова тривога",
         "no_clip": "Кліпу цієї події немає",
         "no_record": "Запису за цю годину немає",
+        "webrtc_failed": "WebRTC для цієї камери зараз недоступний; відео піде через HLS",
+        "exports": "Вивантажені кліпи",
+        "export_pending": "Кліп ще готується",
+        "export_failed": "ProstoCAM не зміг підготувати цей кліп",
+        "ask_one": "Знайшов 1 подію о {time} — {camera}, {kind}.",
+        "ask_many": "Знайшов {count} {noun}, остання о {time} — {camera}, {kind}.",
+        "ask_more": "Знайшов щонайменше {count} {noun}, остання о {time} — {camera}, {kind}.",
+        "ask_nothing": "Нічого не знайшов.",
+        "ask_unclear": "Не зрозумів частину питання: {words}.",
     },
     "ru": {
         "events": "События",
@@ -44,6 +62,15 @@ WORDS: dict[str, dict[str, str]] = {
         "test": "Тестовая тревога",
         "no_clip": "Клипа этого события нет",
         "no_record": "Записи за этот час нет",
+        "webrtc_failed": "WebRTC для этой камеры сейчас недоступен; видео пойдёт через HLS",
+        "exports": "Выгруженные клипы",
+        "export_pending": "Клип ещё готовится",
+        "export_failed": "ProstoCAM не смог подготовить этот клип",
+        "ask_one": "Нашёл 1 событие в {time} — {camera}, {kind}.",
+        "ask_many": "Нашёл {count} {noun}, последнее в {time} — {camera}, {kind}.",
+        "ask_more": "Нашёл не меньше {count} {noun}, последнее в {time} — {camera}, {kind}.",
+        "ask_nothing": "Ничего не нашёл.",
+        "ask_unclear": "Не понял часть вопроса: {words}.",
     },
     "bg": {
         "events": "Събития",
@@ -57,6 +84,15 @@ WORDS: dict[str, dict[str, str]] = {
         "test": "Тестова аларма",
         "no_clip": "Няма клип на това събитие",
         "no_record": "Няма запис за този час",
+        "webrtc_failed": "WebRTC за тази камера сега не е достъпен; видеото ще върви през HLS",
+        "exports": "Изтеглени клипове",
+        "export_pending": "Клипът още се подготвя",
+        "export_failed": "ProstoCAM не успя да подготви този клип",
+        "ask_one": "Намерих 1 събитие в {time} — {camera}, {kind}.",
+        "ask_many": "Намерих {count} {noun}, последното в {time} — {camera}, {kind}.",
+        "ask_more": "Намерих поне {count} {noun}, последното в {time} — {camera}, {kind}.",
+        "ask_nothing": "Нищо не намерих.",
+        "ask_unclear": "Не разбрах част от въпроса: {words}.",
     },
 }
 
@@ -90,3 +126,24 @@ def alarm_label(language: str | None, kind: Any, confidence: Any = None) -> str:
     text = word(language, key) if key in WORDS["en"] else key
     percent = confidence_percent(confidence)
     return f"{text} · {percent} %" if percent is not None else text
+
+
+# Forms of "event" after a number: one, few (2–4), many (Slavic); one, other elsewhere.
+EVENT_NOUNS: dict[str, tuple[str, ...]] = {
+    "en": ("event", "events"),
+    "uk": ("подію", "події", "подій"),
+    "ru": ("событие", "события", "событий"),
+    "bg": ("събитие", "събития"),
+}
+
+
+def events_noun(language: str | None, count: int) -> str:
+    """«3 події», «5 подій», «21 подію»: the noun after a number of events."""
+    forms = EVENT_NOUNS[language_of(language)]
+    if len(forms) == 2:
+        return forms[0] if count == 1 else forms[1]
+    if count % 10 == 1 and count % 100 != 11:
+        return forms[0]
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return forms[1]
+    return forms[2]

@@ -12,7 +12,20 @@ from .const import CONF_TOKEN
 
 TO_REDACT = {CONF_TOKEN}
 # Never in camera diagnostics either (a safety net: they are not collected).
-CAMERA_REDACT = {CONF_TOKEN, "hls_url", "live_key", "stream_url_template", "links", "explanation"}
+CAMERA_REDACT = {
+    CONF_TOKEN,
+    "hls_url",
+    "live_key",
+    "stream_url_template",
+    "links",
+    "explanation",
+    # Protocol 4: never an offer or answer, a download link or a question.
+    "sdp",
+    "download_url",
+    "url",
+    "question",
+    "ice_servers",
+}
 
 
 async def async_get_config_entry_diagnostics(

@@ -1,0 +1,95 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "person": {
+        "default": "mdi:account-outline",
+        "state": {
+          "on": "mdi:account-alert"
+        }
+      },
+      "vehicle": {
+        "default": "mdi:car-outline",
+        "state": {
+          "on": "mdi:car-emergency"
+        }
+      }
+    },
+    "event": {
+      "alarm": {
+        "default": "mdi:alarm-light-outline"
+      }
+    },
+    "image": {
+      "last_alarm": {
+        "default": "mdi:image-marker-outline"
+      }
+    },
+    "alarm_control_panel": {
+      "arming": {
+        "default": "mdi:shield-home-outline"
+      }
+    },
+    "button": {
+      "test_alarm": {
+        "default": "mdi:bell-check-outline"
+      },
+      "ai_check": {
+        "default": "mdi:robot-outline"
+      },
+      "deter": {
+        "default": "mdi:bullhorn-outline"
+      }
+    },
+    "select": {
+      "do_not_disturb": {
+        "default": "mdi:bell-outline",
+        "state": {
+          "1h": "mdi:bell-sleep-outline",
+          "until_morning": "mdi:weather-night",
+          "muted": "mdi:bell-off-outline"
+        }
+      }
+    },
+    "sensor": {
+      "balance": {
+        "default": "mdi:cash"
+      },
+      "tariff": {
+        "default": "mdi:card-account-details-outline"
+      },
+      "ai_credits": {
+        "default": "mdi:robot"
+      },
+      "next_charge": {
+        "default": "mdi:calendar-clock"
+      },
+      "stage": {
+        "default": "mdi:account-check-outline",
+        "state": {
+          "restricted": "mdi:account-alert-outline",
+          "suspended": "mdi:account-cancel-outline"
+        }
+      }
+    }
+  },
+  "services": {
+    "mute": {
+      "service": "mdi:bell-off-outline"
+    },
+    "test_alarm": {
+      "service": "mdi:bell-check-outline"
+    },
+    "verify_ai": {
+      "service": "mdi:robot-outline"
+    },
+    "arm_anyway": {
+      "service": "mdi:shield-alert-outline"
+    },
+    "ask_archive": {
+      "service": "mdi:text-box-search-outline"
+    },
+    "export_clip": {
+      "service": "mdi:file-video-outline"
+    }
+  }
+}

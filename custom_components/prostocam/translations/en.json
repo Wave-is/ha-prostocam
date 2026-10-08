@@ -22,6 +22,18 @@
         "data_description": {
           "code": "8 letters and digits, for example ABCD-1234."
         }
+      },
+      "reconfigure": {
+        "title": "Change the ProstoCAM connection",
+        "description": "Move this connection to another ProstoCAM server or pair it again. In the ProstoCAM web account open Smart home, Home Assistant, press Reconnect and enter the new pairing code. Sensors, cameras and automations stay as they are.",
+        "data": {
+          "code": "Pairing code",
+          "server": "ProstoCAM server"
+        },
+        "data_description": {
+          "code": "8 letters and digits, for example ABCD-1234.",
+          "server": "The address of the ProstoCAM server; keep it unless your provider gave you another one."
+        }
       }
     },
     "error": {
@@ -37,7 +49,8 @@
     "abort": {
       "already_configured": "This ProstoCAM connection is already set up.",
       "reauth_successful": "ProstoCAM is connected again.",
-      "wrong_account": "The code belongs to another ProstoCAM connection. Use the Reconnect button of this connection."
+      "wrong_account": "The code belongs to another ProstoCAM connection. Use the Reconnect button of this connection.",
+      "reconfigure_successful": "The ProstoCAM connection is updated."
     }
   },
   "options": {
@@ -227,6 +240,18 @@
     },
     "no_access": {
       "message": "ProstoCAM does not allow this to Home Assistant ({scope}). Give the access in the ProstoCAM web account (Smart Home → Home Assistant)."
+    },
+    "needs_protocol_4": {
+      "message": "The ProstoCAM server does not support this yet (it needs protocol 4). Try again after the server is updated."
+    },
+    "export_failed": {
+      "message": "ProstoCAM could not prepare the clip: {error}."
+    },
+    "export_in_future": {
+      "message": "The clip must end in the past: choose an earlier start or a shorter duration."
+    },
+    "not_a_camera_entity": {
+      "message": "Choose a camera of ProstoCAM."
     }
   },
   "services": {
@@ -287,6 +312,46 @@
         "config_entry_id": {
           "name": "Connection",
           "description": "The ProstoCAM connection, when there are several."
+        }
+      }
+    },
+    "ask_archive": {
+      "name": "Ask the archive",
+      "description": "Searches the recordings of ProstoCAM cameras by a question in plain words (\"when did someone come to the gate today?\") and answers with a short phrase and the events found, with their frames and clips. Spends no AI credits.",
+      "fields": {
+        "question": {
+          "name": "Question",
+          "description": "In Ukrainian, Russian, English or Bulgarian; up to 300 characters."
+        },
+        "limit": {
+          "name": "How many events",
+          "description": "1…50 events in the answer."
+        },
+        "config_entry_id": {
+          "name": "Connection",
+          "description": "The ProstoCAM connection, when there are several."
+        }
+      }
+    },
+    "export_clip": {
+      "name": "Export a clip",
+      "description": "Cuts a clip of the archive of a ProstoCAM camera (as \"Export\" in the web account) and returns a short-lived download link with its SHA-256. The clip also appears in Media.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "The ProstoCAM camera."
+        },
+        "start": {
+          "name": "Start",
+          "description": "The start of the clip, in the time zone of Home Assistant."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "1…600 seconds; the clip must end in the past."
+        },
+        "wait": {
+          "name": "Wait for the file",
+          "description": "Wait until the file is ready (up to 5 minutes); off — return the job at once, the event prostocam_export_ready is not sent then."
         }
       }
     }

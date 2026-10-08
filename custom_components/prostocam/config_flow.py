@@ -153,6 +153,37 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Another server, or a new code for the same connection (no new entry)."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            server = normalize_server(user_input.get(CONF_SERVER, entry.data[CONF_SERVER]))
+            if server is None:
+                errors[CONF_SERVER] = "invalid_server"
+            else:
+                result = await self._async_pair(user_input.get(CONF_CODE), server, errors)
+                if result is not None:
+                    await self.async_set_unique_id(result[CONF_INTEGRATION_ID])
+                    self._abort_if_unique_id_mismatch(reason="wrong_account")
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_SERVER: server,
+                            CONF_TOKEN: result[CONF_TOKEN],
+                            CONF_INTEGRATION_ID: result[CONF_INTEGRATION_ID],
+                        },
+                    )
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_CODE): str,
+                vol.Required(CONF_SERVER, default=entry.data[CONF_SERVER]): str,
+            }
+        )
+        return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
     async def _async_pair(
         self, raw_code: str | None, server: str, errors: dict[str, str]
     ) -> dict[str, str] | None:

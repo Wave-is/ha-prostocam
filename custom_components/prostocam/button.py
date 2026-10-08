@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -51,6 +52,7 @@ class ProstoCamTestAlarmButton(_ProstoCamButton):
     """«Перевірити тривогу»: a test alarm through every channel of the subscriber."""
 
     key = "test_alarm"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_press(self) -> None:
         """Send the test alarm."""
