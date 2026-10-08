@@ -153,7 +153,7 @@ async def test_live_and_snapshot_failures(
 ) -> None:
     """No address and the old frame on every failure; the pause the server asks for."""
     live = Replies((200, {"data": {"camera_id": 12, "hls_url": HLS_URL}}))
-    snapshot = Replies({"status": 200, "content": JPEG, "headers": {"Content-Type": "image/jpeg"}})
+    snapshot = Replies({"status": 200, "response": JPEG, "headers": {"Content-Type": "image/jpeg"}})
     hub = await setup_hub(
         hass,
         aioclient_mock,
@@ -176,7 +176,7 @@ async def test_live_and_snapshot_failures(
     ]
     assert await hub.async_snapshot(12, fresh=True) == JPEG
     assert await hub.async_snapshot(12) == JPEG  # the pause of the server
-    snapshot.replies = [{"status": 200, "content": b"", "headers": {"Content-Type": "image/jpeg"}}]
+    snapshot.replies = [{"status": 200, "response": b"", "headers": {"Content-Type": "image/jpeg"}}]
     assert await hub.async_snapshot(12, fresh=True) == JPEG
     snapshot.replies = [(403, {"code": "scope_missing", "message": "cameras:read"})]
     assert await hub.async_snapshot(12, fresh=True) == JPEG
@@ -205,7 +205,7 @@ async def test_event_frame_failures(
     )
     assert await hub.async_event_image(77) is None
     assert hub.stats["snapshot_errors"] == 0
-    frames.replies = [{"status": 200, "content": b"", "headers": {"Content-Type": "image/jpeg"}}]
+    frames.replies = [{"status": 200, "response": b"", "headers": {"Content-Type": "image/jpeg"}}]
     assert await hub.async_event_image(77) is None
     frames.replies = [(403, {"code": "scope_missing", "message": "events:read"})]
     assert await hub.async_event_image(77) is None
