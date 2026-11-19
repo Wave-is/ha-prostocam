@@ -59,7 +59,11 @@ class ProstoCamArmingPanel(ProstoCamAccountEntity, AlarmControlPanelEntity):
     @property
     def available(self) -> bool:
         """Known once the arming was read."""
-        return self.control.arming is not None and not self.control.bridge.auth_failed
+        return (
+            super().available
+            and self.control.arming is not None
+            and not self.control.bridge.auth_failed
+        )
 
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:

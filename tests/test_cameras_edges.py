@@ -82,7 +82,7 @@ async def test_catalog_failures_and_changes(
     assert "cameras:read" in hub.denied
     await hub.async_refresh_catalog()  # no area: nothing is asked
     hub.denied.clear()
-    reads.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    reads.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     await hub.async_refresh_catalog()
     await hass.async_block_till_done()
     assert hub.bridge.auth_failed
@@ -183,11 +183,11 @@ async def test_live_and_snapshot_failures(
     assert await hub.async_snapshot(12, fresh=True) == JPEG  # no area
     hub.denied.clear()
 
-    live.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    live.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     assert await hub.async_live_url(12) is None
     await hass.async_block_till_done()
     assert await hub.async_live_url(12) is None  # the token is gone
-    snapshot.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    snapshot.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     hub.bridge.auth_failed = False
     assert await hub.async_snapshot(12, fresh=True) == JPEG
 
@@ -211,7 +211,7 @@ async def test_event_frame_failures(
     assert await hub.async_event_image(77) is None
     assert await hub.async_event_image(77) is None
     hub.denied.clear()
-    frames.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    frames.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     assert await hub.async_event_image(77) is None
 
 
@@ -254,7 +254,7 @@ async def test_event_channel_refusals_and_closes(
     assert await hub._async_events_once() is None
     assert "events:read" in hub.denied
     hub.denied.clear()
-    channel.replies = [(401, {"code": "stream_auth_required", "message": "x"})]
+    channel.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     assert await hub._async_events_once() is None
     assert hub.stats["stream_last_error"] == "token_invalid"
 

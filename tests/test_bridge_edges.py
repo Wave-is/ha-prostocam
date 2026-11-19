@@ -117,7 +117,7 @@ async def test_heartbeat_paths(
     bridge._stopped = False
     assert len(calls_to(aioclient_mock, "heartbeat")) == beats
 
-    with patch.object(bridge.client, "async_post", side_effect=ProstoCamAuthError("HTTP 401")):
+    with patch.object(bridge.client, "async_post", side_effect=ProstoCamAuthError("HTTP 401", "integration_revoked")):
         await bridge.async_heartbeat()
     assert bridge.auth_failed
     bridge._async_auth_failed()  # once only

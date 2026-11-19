@@ -70,7 +70,7 @@ class ProstoCamDoNotDisturb(ProstoCamCameraEntity, SelectEntity):
     @property
     def available(self) -> bool:
         """Known once the mute of the camera was read."""
-        return self.camera_state.muted is not None
+        return super().available and self.camera_state.muted is not None
 
     @property
     def current_option(self) -> str | None:

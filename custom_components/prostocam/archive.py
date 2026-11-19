@@ -145,7 +145,7 @@ class ProstoCamArchive:
         if isinstance(err, ProstoCamScopeError):
             self.hub.deny(SCOPE_ARCHIVE, err)
         elif isinstance(err, ProstoCamAuthError):
-            self.hub.bridge.report_auth_failed()
+            self.hub.bridge.report_auth_failed(err)
 
     # ------------------------------------------------------------- question
 

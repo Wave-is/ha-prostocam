@@ -9,7 +9,7 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "1.0.1"
+VERSION: Final = "1.0.2"
 
 DEFAULT_SERVER: Final = "https://new.prosto.cam"
 DEFAULT_TITLE: Final = "ProstoCAM"
@@ -45,6 +45,8 @@ PROTOCOL_VERSION: Final = 4
 ERROR_ALREADY_CONNECTED: Final = "already_connected"
 ERROR_CLIENT_OUTDATED: Final = "client_outdated"
 ERROR_NOT_FOUND: Final = "not_found"
+# 401 when the subscriber removed the connection in the web account: pair again at once.
+ERROR_INTEGRATION_REVOKED: Final = "integration_revoked"
 
 # Config entry data.
 CONF_CODE: Final = "code"
@@ -116,6 +118,14 @@ RETRY_MIN: Final = 5  # seconds
 RETRY_MAX: Final = 300  # seconds
 RATE_LIMIT_PAUSE: Final = 60  # seconds; the server sends no Retry-After
 DISABLED_RECHECK: Final = 600  # seconds between heartbeats while the bridge is off
+# A plain 401 (`token_invalid`) asks for a new pairing only when it repeats: at least
+# this many refusals in a row, the first one at least AUTH_FAILURE_WINDOW ago. A server
+# whose database blinked must not make the subscriber pair again (18.11.2026).
+# `integration_revoked` asks at once.
+AUTH_FAILURES_TO_REAUTH: Final = 3
+AUTH_FAILURE_WINDOW: Final = 600  # seconds
+# hass.data key of the counters of plain 401s, by config entry (they outlive a reload).
+DATA_AUTH_STRIKES: Final = f"{DOMAIN}_auth_strikes"
 LATE_AFTER: Final = 120  # seconds, the server may change it
 MAX_QUEUED_S: Final = 86400
 STORAGE_VERSION: Final = 1

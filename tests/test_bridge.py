@@ -296,8 +296,8 @@ async def test_rejected_token_starts_reauth(
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """A revoked token keeps the queue and asks for a new code."""
-    mock_server(events={"status": 401, "json": {"message": "x", "code": "token_invalid"}})
+    """A revoked connection keeps the queue and asks for a new code at once."""
+    mock_server(events={"status": 401, "json": {"message": "x", "code": "integration_revoked"}})
     _populate(hass)
     await _setup(hass, config_entry)
 
@@ -344,8 +344,8 @@ async def test_setup_with_revoked_token(
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """A token rejected at start fails the setup with a reauth request."""
-    mock_server(heartbeat={"status": 401})
+    """A connection revoked before the start fails the setup with a reauth request."""
+    mock_server(heartbeat={"status": 401, "json": {"message": "x", "code": "integration_revoked"}})
     assert not await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.SETUP_ERROR

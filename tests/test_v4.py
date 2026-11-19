@@ -324,7 +324,7 @@ async def test_webrtc_token_and_scope_refusals(
     assert len(replies.bodies) == 1
 
     hub.denied.clear()
-    replies.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    replies.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     with pytest.raises(WebRtcFailed) as err:
         await hub.async_webrtc_answer(12, OFFER)
     assert err.value.code == "token_invalid"
@@ -579,7 +579,7 @@ async def test_ask_archive_refusals(
     assert err.value.translation_key == "invalid_request"
     assert hub.archive.stats["question_errors"] == 2
 
-    replies.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    replies.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     with pytest.raises(HomeAssistantError) as err:
         await ask(hass)
     assert err.value.translation_key == "token_invalid"
@@ -848,7 +848,7 @@ async def test_export_clip_refusals(
         await export(hass, past)
     assert err.value.translation_key == "export_not_found"
 
-    status.replies = [(401, {"code": "token_invalid", "message": "x"})]
+    status.replies = [(401, {"code": "integration_revoked", "message": "x"})]
     with pytest.raises(HomeAssistantError) as err:
         await export(hass, past)
     assert err.value.translation_key == "token_invalid"

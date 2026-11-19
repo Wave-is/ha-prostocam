@@ -304,7 +304,7 @@ class ProstoCamControl:
         if isinstance(err, ProstoCamScopeError):
             self.cameras.deny(scope, err)
         elif isinstance(err, ProstoCamAuthError):
-            self.bridge.report_auth_failed()
+            self.bridge.report_auth_failed(err)
 
     # --------------------------------------------------------------- arming
 

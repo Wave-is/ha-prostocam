@@ -71,7 +71,7 @@ async def test_command_errors_name_the_reason(
         (409, {"code": "rate_limited_camera", "message": "Раз на хвилину"}),
         (409, {"code": "busy"}),
         SERVER_ERROR,
-        (401, {"code": "token_invalid", "message": "x"}),
+        (401, {"code": "integration_revoked", "message": "x"}),
     )
     control = await setup_routes(
         hass,

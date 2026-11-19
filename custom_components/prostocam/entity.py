@@ -24,6 +24,11 @@ class ProstoCamCameraEntity(Entity):
         self._attr_device_info = hub.device_info(camera_id)
 
     @property
+    def available(self) -> bool:
+        """Unavailable while ProstoCAM does not answer (an outage is not a revoked token)."""
+        return not self.hub.bridge.server_unreachable
+
+    @property
     def camera_state(self) -> CameraState:
         """What is known about the camera now."""
         return self.hub.states.setdefault(self.camera_id, CameraState())
@@ -36,9 +41,19 @@ class ProstoCamCameraEntity(Entity):
                 self.hass, self.hub.signal_update(self.camera_id), self._async_camera_updated
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, self.hub.bridge.signal_availability, self._async_availability_changed
+            )
+        )
 
     @callback
     def _async_camera_updated(self) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _async_availability_changed(self) -> None:
+        """The server stopped or started answering (every entity, the event one too)."""
         self.async_write_ha_state()
 
 
@@ -54,6 +69,11 @@ class ProstoCamAccountEntity(Entity):
         self._attr_unique_id = control.unique_id(key)
         self._attr_device_info = control.device_info()
 
+    @property
+    def available(self) -> bool:
+        """Unavailable while ProstoCAM does not answer (an outage is not a revoked token)."""
+        return not self.control.bridge.server_unreachable
+
     async def async_added_to_hass(self) -> None:
         """Follow the updates of the arming and the account."""
         await super().async_added_to_hass()
@@ -62,7 +82,17 @@ class ProstoCamAccountEntity(Entity):
                 self.hass, self.control.signal_update, self._async_control_updated
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, self.control.bridge.signal_availability, self._async_availability_changed
+            )
+        )
 
     @callback
     def _async_control_updated(self) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _async_availability_changed(self) -> None:
+        """The server stopped or started answering."""
         self.async_write_ha_state()

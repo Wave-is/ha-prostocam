@@ -65,7 +65,7 @@ class ProstoCamAccountSensor(ProstoCamAccountEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Known once the account was read."""
-        return self.control.account is not None
+        return super().available and self.control.account is not None
 
     @property
     def device_class(self) -> SensorDeviceClass | None:

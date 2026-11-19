@@ -193,6 +193,10 @@ actions:
 - **Помилки дій (з 1.0.1).** Відмова сервера — людська фраза мовою Home Assistant («за цей час запису немає —
   найближчий запис: …», «кредитів ШІ не вистачає»), без трасування в журналі; невідомий код — загальна фраза, сам код —
   у діагностиці (`error_codes`).
+- **Збій сервера — не відкликаний токен (з 1.0.2).** Мережа, 5xx або `503 temporarily_unavailable` — повтори з
+  відступом, сутності «недоступні», жодного «Ремонту». Звичайний `401` вважається відкликанням лише якщо триває (3 відмови
+  поспіль, перша — щонайменше 10 хв тому); `401 integration_revoked` (підключення вимкнено в кабінеті) — одразу. Якщо
+  запит на новий код уже показано, а сервер знову приймає токен — запит знімається сам.
 - **Видалення.** Налаштування → Пристрої та служби → ProstoCAM → ⋮ → Видалити; потім у кабінеті ProstoCAM
   «Відключити» — токен перестане діяти. Через HACS видаліть і саму інтеграцію.
 
@@ -386,6 +390,10 @@ actions:
 - **Action errors (since 1.0.1).** A refusal of the server is a plain phrase in the language of Home Assistant ("there is
   no recording for this time — the nearest recording: …", "not enough AI credits"), with no traceback in the log; an
   unknown code gets a general phrase, the code itself is in the diagnostics (`error_codes`).
+- **A server in trouble is not a revoked token (since 1.0.2).** Network, 5xx or `503 temporarily_unavailable` — retries
+  with a backoff, entities unavailable, no repair. A plain `401` counts as revoked only when it lasts (3 refusals in a
+  row, the first at least 10 min ago); `401 integration_revoked` (the connection was removed in the web account) — at
+  once. A request for a new code already shown is withdrawn by itself once the server accepts the token again.
 - **Removal.** Settings → Devices & services → ProstoCAM → ⋮ → Delete; then Disconnect in the ProstoCAM web account — the
   token stops working. Remove the integration itself in HACS.
 

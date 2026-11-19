@@ -29,8 +29,10 @@ from typing import TYPE_CHECKING, Any
 import time
 import uuid
 
+from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.const import EVENT_STATE_CHANGED, __version__ as HA_VERSION
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, State, callback
+from homeassistant.data_entry_flow import UnknownFlow
 from homeassistant.helpers import (
     area_registry as ar,
     device_registry as dr,
@@ -38,6 +40,7 @@ from homeassistant.helpers import (
     issue_registry as ir,
 )
 from homeassistant.helpers.debounce import Debouncer
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
@@ -46,6 +49,7 @@ from homeassistant.util import dt as dt_util
 from .api import (
     ProstoCamAuthError,
     ProstoCamClient,
+    ProstoCamConnectionError,
     ProstoCamError,
     ProstoCamOutdatedError,
     ProstoCamRateLimitedError,
@@ -53,11 +57,14 @@ from .api import (
 )
 from .const import (
     ALARM_DOMAIN,
+    AUTH_FAILURE_WINDOW,
+    AUTH_FAILURES_TO_REAUTH,
     BATCH_SIZE,
     BATTERY_ATTRIBUTES,
     CATALOG_COOLDOWN,
     CONF_DEVICE_CLASSES,
     CONF_DOMAINS,
+    DATA_AUTH_STRIKES,
     DEFAULT_DEVICE_CLASSES,
     DEFAULT_DOMAINS,
     DISABLED_RECHECK,
@@ -147,7 +154,16 @@ class ProstoCamBridge:
         self.max_batch = BATCH_SIZE
         self.max_catalog = MAX_CATALOG
         self.heartbeat_interval = HEARTBEAT_INTERVAL
+        # A new pairing was asked for (the token is believed dead). Heartbeats go on:
+        # the first accepted one withdraws the request by itself.
         self.auth_failed = False
+        # The last heartbeat or send failed (network, 5xx, a passing 401): the
+        # entities are unavailable until the server answers again.
+        self.server_unreachable = False
+        # Plain 401s in a row; kept across reloads of the entry (hass.data).
+        self._auth_strikes: dict[str, Any] = hass.data.setdefault(
+            DATA_AUTH_STRIKES, {}
+        ).setdefault(entry.entry_id, {"count": 0, "first": None})
         self.outdated = False
         # The bridge is switched off on the server (404 not_found): only heartbeats.
         self.disabled = False
@@ -576,8 +592,14 @@ class ProstoCamBridge:
         await self.async_heartbeat()
 
     async def async_heartbeat(self, *, raise_auth: bool = False) -> None:
-        """Tell the server Home Assistant is alive and refresh the enabled list."""
-        if self._stopped or self.auth_failed:
+        """Tell the server Home Assistant is alive and refresh the enabled list.
+
+        Goes on after a new pairing was asked for: the first accepted heartbeat
+        withdraws the request (the 401 came from a server in trouble, not from a
+        dead token). With `raise_auth` (the start) a 401 is raised only when it
+        is to be believed (`integration_revoked`, or repeated for long enough).
+        """
+        if self._stopped:
             return
         now = self._clock()
         if (
@@ -590,10 +612,15 @@ class ProstoCamBridge:
         payload = {"client_version": VERSION, "ha_version": HA_VERSION}
         try:
             data = await self.client.async_post(PATH_HEARTBEAT, payload)
-        except ProstoCamAuthError:
+        except ProstoCamAuthError as err:
+            self._note_error(err)
             if raise_auth:
-                raise
-            self._async_auth_failed()
+                if self._count_auth_failure(err):
+                    raise
+                # A passing refusal at the start: load, retry with the heartbeats.
+                self._set_reachable(False)
+                return
+            self._async_auth_failed(err)
             return
         except ProstoCamError as err:
             self._handle_error(err)
@@ -692,8 +719,12 @@ class ProstoCamBridge:
         """Record an error; True when the request should be retried later."""
         self._note_error(err)
         if isinstance(err, ProstoCamAuthError):
-            self._async_auth_failed()
-            return False
+            # A passing 401 is retried with the backoff like an outage; a believed one stops.
+            return not self._async_auth_failed(err)
+        if isinstance(err, ProstoCamConnectionError) and not isinstance(
+            err, ProstoCamRateLimitedError
+        ):
+            self._set_reachable(False)
         if isinstance(err, ProstoCamOutdatedError):
             self._async_outdated()
             return False
@@ -722,17 +753,77 @@ class ProstoCamBridge:
         return _remove
 
     @callback
-    def report_auth_failed(self) -> None:
-        """Another reader saw `401 token_invalid`: stop and ask for a new code."""
-        self._async_auth_failed()
+    def report_auth_failed(self, err: ProstoCamAuthError | None = None) -> bool:
+        """Another reader saw a 401: True when a new pairing is asked for (stop).
+
+        False — a passing refusal (a server in trouble answers 401 too): the
+        reader keeps its data and tries again later, nothing is asked of the user.
+        """
+        return self._async_auth_failed(err)
+
+    def _count_auth_failure(self, err: ProstoCamAuthError | None) -> bool:
+        """Count a 401; True when it is to be believed.
+
+        `integration_revoked` is believed at once. Any other 401 only when it
+        repeats: AUTH_FAILURES_TO_REAUTH refusals in a row with no accepted
+        heartbeat between, the first one at least AUTH_FAILURE_WINDOW ago.
+        """
+        if err is not None and err.revoked:
+            return True
+        now = self._clock()
+        strikes = self._auth_strikes
+        if strikes["first"] is None:
+            strikes["first"] = now
+        strikes["count"] += 1
+        return (
+            strikes["count"] >= AUTH_FAILURES_TO_REAUTH
+            and now - strikes["first"] >= AUTH_FAILURE_WINDOW
+        )
 
     @callback
-    def _async_auth_failed(self) -> None:
+    def _async_auth_failed(self, err: ProstoCamAuthError | None = None) -> bool:
+        """A 401: ask for a new pairing when it is to be believed; True then."""
         if self.auth_failed:
-            return
+            return True
+        if not self._count_auth_failure(err):
+            if self._auth_strikes["count"] == 1:
+                LOGGER.warning(
+                    "ProstoCAM refused the token (%s); retrying, a new pairing is asked "
+                    "for only if this lasts %s s",
+                    err.code if err is not None and err.code else "401",
+                    AUTH_FAILURE_WINDOW,
+                )
+            self._set_reachable(False)
+            return False
         self.auth_failed = True
+        self._set_reachable(False)
         LOGGER.warning("ProstoCAM rejected the token; pair Home Assistant again")
         self.entry.async_start_reauth(self.hass)
+        return True
+
+    @callback
+    def _async_auth_recovered(self) -> None:
+        """The server accepts the token again: withdraw the pairing request."""
+        self.auth_failed = False
+        LOGGER.info("ProstoCAM accepts the token again; the request to pair is withdrawn")
+        for flow in list(self.entry.async_get_active_flows(self.hass, {SOURCE_REAUTH})):
+            with suppress(UnknownFlow):
+                self.hass.config_entries.flow.async_abort(flow["flow_id"])
+        if self.cameras is not None:
+            self.cameras.async_resume()
+
+    @callback
+    def _set_reachable(self, reachable: bool) -> None:
+        """Entities are available only while the server answers."""
+        if self.server_unreachable == (not reachable):
+            return
+        self.server_unreachable = not reachable
+        async_dispatcher_send(self.hass, self.signal_availability)
+
+    @property
+    def signal_availability(self) -> str:
+        """Dispatcher signal: the server stopped or started answering."""
+        return f"{DOMAIN}_{self.entry.entry_id}_availability"
 
     def _set_disabled(self) -> None:
         if not self.disabled:
@@ -760,6 +851,11 @@ class ProstoCamBridge:
 
     def _note_success(self) -> None:
         self.stats["last_success"] = dt_util.utcnow().isoformat()
+        self._auth_strikes["count"] = 0
+        self._auth_strikes["first"] = None
+        self._set_reachable(True)
+        if self.auth_failed:
+            self._async_auth_recovered()
 
     def _note_error(self, err: ProstoCamError) -> None:
         self.stats["last_error"] = f"{type(err).__name__}: {err}"
@@ -793,6 +889,8 @@ class ProstoCamBridge:
             "catalog_pending": self._catalog_pending,
             "heartbeat_interval": self.heartbeat_interval,
             "auth_failed": self.auth_failed,
+            "auth_refusals_in_a_row": self._auth_strikes["count"],
+            "server_unreachable": self.server_unreachable,
             "outdated": self.outdated,
             "disabled": self.disabled,
             "late_after": self.late_after,

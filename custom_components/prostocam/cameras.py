@@ -367,6 +367,18 @@ class ProstoCamCameras:
                 self.hass, self._async_run_events(), "prostocam_events"
             )
 
+    @callback
+    def async_resume(self) -> None:
+        """The token is accepted again after a request to pair: reopen the event channel."""
+        if self._stopped or not self.enabled or not self.has(SCOPE_EVENTS):
+            return
+        if self._events_task is not None and not self._events_task.done():
+            return
+        self._backoff = 0.0
+        self._events_task = self.entry.async_create_background_task(
+            self.hass, self._async_run_events(), "prostocam_events"
+        )
+
     async def async_stop(self) -> None:
         """Stop the channel and timers; keep the cursor for the next start."""
         self._stopped = True
@@ -454,8 +466,8 @@ class ProstoCamCameras:
         except ProstoCamScopeError as err:
             self._deny(SCOPE_CAMERAS, err)
             return
-        except ProstoCamAuthError:
-            self.bridge.report_auth_failed()
+        except ProstoCamAuthError as err:
+            self.bridge.report_auth_failed(err)
             return
         except ProstoCamError as err:
             self.stats["catalog_errors"] += 1
@@ -641,8 +653,8 @@ class ProstoCamCameras:
         except ProstoCamScopeError as err:
             self._deny(SCOPE_LIVE, err)
             return None
-        except ProstoCamAuthError:
-            self.bridge.report_auth_failed()
+        except ProstoCamAuthError as err:
+            self.bridge.report_auth_failed(err)
             return None
         except ProstoCamError as err:
             # The message holds the status and the code only, never the address.
@@ -739,7 +751,7 @@ class ProstoCamCameras:
                 camera_id, err.code or "scope_missing", fallback=False
             ) from err
         except ProstoCamAuthError as err:
-            self.bridge.report_auth_failed()
+            self.bridge.report_auth_failed(err)
             raise self._webrtc_failed(camera_id, "token_invalid", fallback=False) from err
         except ProstoCamRateLimitedError as err:
             raise self._webrtc_failed(
@@ -814,8 +826,8 @@ class ProstoCamCameras:
         except ProstoCamScopeError as err:
             self._deny(SCOPE_CAMERAS, err)
             return state.snapshot
-        except ProstoCamAuthError:
-            self.bridge.report_auth_failed()
+        except ProstoCamAuthError as err:
+            self.bridge.report_auth_failed(err)
             return state.snapshot
         except ProstoCamError as err:
             self.stats["snapshot_errors"] += 1
@@ -846,10 +858,12 @@ class ProstoCamCameras:
         """One connection; the pause before the next one, None = do not reconnect."""
         try:
             response = await self.client.async_open_stream(self.cursor)
-        except ProstoCamAuthError:
+        except ProstoCamAuthError as err:
             self.stats["stream_last_error"] = "token_invalid"
-            self.bridge.report_auth_failed()
-            return None
+            if self.bridge.report_auth_failed(err):
+                return None
+            # A passing 401 (a server in trouble): reconnect with the backoff.
+            return self._next_backoff()
         except ProstoCamScopeError as err:
             self.stats["stream_last_error"] = err.code
             self._deny(SCOPE_EVENTS, err)
@@ -1078,8 +1092,8 @@ class ProstoCamCameras:
         except ProstoCamScopeError as err:
             self._deny(SCOPE_EVENTS, err)
             return None
-        except ProstoCamAuthError:
-            self.bridge.report_auth_failed()
+        except ProstoCamAuthError as err:
+            self.bridge.report_auth_failed(err)
             return None
         except ProstoCamError as err:
             if getattr(err, "code", None) != ERROR_FRAME_MISSING:

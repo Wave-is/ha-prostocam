@@ -11,6 +11,7 @@ import aiohttp
 
 from .const import (
     API_PREFIX,
+    ERROR_INTEGRATION_REVOKED,
     PATH_PAIR,
     PATH_STREAM,
     REQUEST_TIMEOUT,
@@ -47,7 +48,22 @@ class ProstoCamUnavailableError(ProstoCamConnectionError):
 
 
 class ProstoCamAuthError(ProstoCamError):
-    """The token was rejected (HTTP 401/403)."""
+    """The token was rejected (HTTP 401/403).
+
+    `code` tells a removed connection (`integration_revoked`: pair again at once)
+    from a token the server did not recognise this time (`token_invalid`, which
+    the bridge believes only when it repeats for a while).
+    """
+
+    def __init__(self, message: str = "HTTP 401", code: str | None = None) -> None:
+        """Remember the error code of the refusal."""
+        super().__init__(message)
+        self.code = code
+
+    @property
+    def revoked(self) -> bool:
+        """The subscriber removed the connection in the web account."""
+        return self.code == ERROR_INTEGRATION_REVOKED
 
 
 class ProstoCamScopeError(ProstoCamError):
@@ -139,7 +155,9 @@ def raise_for_reply(status: int, text: str, headers: Any) -> dict[str, Any]:
     if status == 403 and code in SCOPE_ERRORS:
         raise ProstoCamScopeError(code, _error_message(body))
     if status == 401 or (status == 403 and code != "account_inactive"):
-        raise ProstoCamAuthError(f"HTTP {status}")
+        raise ProstoCamAuthError(
+            " ".join(part for part in (f"HTTP {status}", code) if part), code
+        )
     if status == 426:
         raise ProstoCamOutdatedError(f"HTTP {status}")
     if status == 429:

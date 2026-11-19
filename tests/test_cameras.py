@@ -454,7 +454,7 @@ async def test_channel_401_starts_reauth(
     channel = await setup_v2(hass, aioclient_mock, config_entry, mock_server)
     await wait_for(lambda: len(calls_to(aioclient_mock, "v2/stream")) == 1)
     channel.queue_response(
-        status=401, json={"code": "stream_auth_required", "message": "..."}
+        status=401, json={"code": "integration_revoked", "message": "..."}
     )
     await wait_for(lambda: config_entry.runtime_data.auth_failed)
     await hass.async_block_till_done()
@@ -605,10 +605,10 @@ async def test_heartbeat_reports_the_version(
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """The heartbeat carries the version of the integration (1.0.1, contract §14.6)."""
+    """The heartbeat carries the version of the integration (1.0.2, contract §14.6)."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
     heartbeat = calls_to(aioclient_mock, "heartbeat")[0]
-    assert heartbeat[2]["client_version"] == VERSION == "1.0.1"
+    assert heartbeat[2]["client_version"] == VERSION == "1.0.2"
 
 
 async def test_event_entity_fires_bus_state_change(
