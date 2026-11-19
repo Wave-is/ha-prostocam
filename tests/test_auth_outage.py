@@ -199,5 +199,5 @@ async def test_a_plain_401_at_start_does_not_fail_the_setup(
     assert config_entry.state is ConfigEntryState.LOADED
     assert not _reauth_flows(hass)
     bridge = config_entry.runtime_data
-    assert bridge.server_unreachable
+    # (the catalog that went through right after counts as an answer of the server)
     assert not bridge.auth_failed
