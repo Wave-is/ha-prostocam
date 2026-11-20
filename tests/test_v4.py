@@ -729,7 +729,7 @@ async def test_export_clip_waits_for_the_file(
     result = await export(hass, start.isoformat())
     assert order.bodies == [{"from": start.isoformat(), "duration_s": 90}]
     assert result["state"] == "ready"
-    assert result["url"] == f"https://new.prosto.cam{DOWNLOAD}"
+    assert result["url"] == f"https://my.prostocam.fyi{DOWNLOAD}"
     assert result["sha256"] == "ab" * 32
     assert result["size_bytes"] == 1234567
     assert result["camera"] == "Gate"
@@ -752,7 +752,7 @@ async def test_export_clip_waits_for_the_file(
     played = await source.async_resolve_media(
         MediaSourceItem(hass, DOMAIN, f"{entry_id}/12/export/942", None)
     )
-    assert played.url == f"https://new.prosto.cam{DOWNLOAD}"
+    assert played.url == f"https://my.prostocam.fyi{DOWNLOAD}"
     assert played.mime_type == "video/mp4"
 
     status.replies = [(200, job("running"))]
@@ -893,7 +893,7 @@ async def test_export_link_forms(
     hub = await setup_v4(hass, aioclient_mock, config_entry, mock_server)
     archive = hub.archive
     assert archive.download_url({"download_url": "https://cdn.example.org/f.mp4"}) == "https://cdn.example.org/f.mp4"
-    assert archive.download_url({"download_url": "/v1/x"}) == "https://new.prosto.cam/v1/x"
+    assert archive.download_url({"download_url": "/v1/x"}) == "https://my.prostocam.fyi/v1/x"
     assert archive.download_url({"download_url": "ftp://x"}) is None
     assert archive.download_url({}) is None
 

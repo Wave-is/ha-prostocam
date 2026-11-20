@@ -60,7 +60,7 @@ from .test_cameras import (
 CONTROL_SCOPES = ["archive:read", "arming:write", "actions:write", "account:read"]
 V3_SCOPES = ALL_SCOPES + CONTROL_SCOPES
 EVENT_JPEG = b"\xff\xd8\xff\xe0event-frame-456\xff\xd9"
-CLIP_URL = "https://new.prosto.cam/v2/media/cam12/index-1759886404-40.m3u8?token=secret-clip-token"
+CLIP_URL = "https://my.prostocam.fyi/v2/media/cam12/index-1759886404-40.m3u8?token=secret-clip-token"
 ACCOUNT = {
     "connected": True,
     "stage": "active",

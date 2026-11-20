@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from yarl import URL
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -13,7 +15,15 @@ from .api import ProstoCamAuthError, ProstoCamClient
 from .archive import AskArchiveIntentHandler, ProstoCamArchive
 from .bridge import ProstoCamBridge
 from .cameras import ProstoCamCameras
-from .const import CONF_SERVER, CONF_TOKEN, DOMAIN, PLATFORMS
+from .const import (
+    CONF_SERVER,
+    CONF_TOKEN,
+    DEFAULT_SERVER,
+    DOMAIN,
+    LOGGER,
+    PLATFORMS,
+    RETIRED_SERVER_HOSTS,
+)
 from .control import ProstoCamControl
 from .services import async_setup_services
 from .views import async_register_views
@@ -60,6 +70,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ProstoCamConfigEntry) ->
         cameras.platforms_loaded = True
     cameras.async_remove_stale_entities()
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    return True
+
+
+def migrated_server(server: str | None) -> str | None:
+    """The new address for a saved server on a retired name, None for any other server.
+
+    `new.prosto.cam`, `https://new.prosto.cam/`, `http://NEW.prosto.cam` all become DEFAULT_SERVER;
+    a server of the subscriber's own (another host, or a path behind the name) stays as it is.
+    """
+    value = (server or "").strip()
+    if not value:
+        return None
+    try:
+        url = URL(value if "://" in value else f"https://{value}")
+    except ValueError:
+        return None
+    if (url.host or "").lower().rstrip(".") not in RETIRED_SERVER_HOSTS:
+        return None
+    if url.path not in ("", "/") or url.query_string or url.fragment:
+        return None
+    return DEFAULT_SERVER
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring a saved connection to the current entry version; the token is never touched."""
+    if entry.version > 1:
+        # Written by a newer integration: this one cannot read it.
+        return False
+    if entry.minor_version < 2:
+        data = dict(entry.data)
+        server = migrated_server(data.get(CONF_SERVER))
+        if server is not None:
+            LOGGER.info("ProstoCAM moved to %s: the saved server address is updated", server)
+            data[CONF_SERVER] = server
+        hass.config_entries.async_update_entry(entry, data=data, minor_version=2)
     return True
 
 

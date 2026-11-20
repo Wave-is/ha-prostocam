@@ -107,7 +107,7 @@ async def test_user_flow_bad_server(hass: HomeAssistant) -> None:
         context={"source": config_entries.SOURCE_USER, "show_advanced_options": True},
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_CODE: "ABCD1234", CONF_SERVER: "new.prosto.cam"}
+        result["flow_id"], {CONF_CODE: "ABCD1234", CONF_SERVER: "my.prostocam.fyi"}
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_SERVER: "invalid_server"}

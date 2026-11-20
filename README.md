@@ -197,6 +197,9 @@ actions:
   відступом, сутності «недоступні», жодного «Ремонту». Звичайний `401` вважається відкликанням лише якщо триває (3 відмови
   поспіль, перша — щонайменше 10 хв тому); `401 integration_revoked` (підключення вимкнено в кабінеті) — одразу. Якщо
   запит на новий код уже показано, а сервер знову приймає токен — запит знімається сам.
+- **Нова адреса сервера (з 1.0.3).** Типовий сервер — `https://my.prostocam.fyi`. Збережене підключення до
+  `new.prosto.cam` саме переходить на нову адресу під час оновлення, токен той самий, новий код не потрібен; власна
+  адреса сервера не змінюється.
 - **Видалення.** Налаштування → Пристрої та служби → ProstoCAM → ⋮ → Видалити; потім у кабінеті ProstoCAM
   «Відключити» — токен перестане діяти. Через HACS видаліть і саму інтеграцію.
 
@@ -394,6 +397,9 @@ actions:
   with a backoff, entities unavailable, no repair. A plain `401` counts as revoked only when it lasts (3 refusals in a
   row, the first at least 10 min ago); `401 integration_revoked` (the connection was removed in the web account) — at
   once. A request for a new code already shown is withdrawn by itself once the server accepts the token again.
+- **New server address (since 1.0.3).** The default server is `https://my.prostocam.fyi`. A saved connection to
+  `new.prosto.cam` moves to the new address by itself on update, with the same token and no new code; a server address
+  of your own is left as it is.
 - **Removal.** Settings → Devices & services → ProstoCAM → ⋮ → Delete; then Disconnect in the ProstoCAM web account — the
   token stops working. Remove the integration itself in HACS.
 

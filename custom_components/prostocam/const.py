@@ -9,9 +9,11 @@ DOMAIN: Final = "prostocam"
 LOGGER = logging.getLogger(__package__)
 
 # Keep in sync with manifest.json.
-VERSION: Final = "1.0.2"
+VERSION: Final = "1.0.3"
 
-DEFAULT_SERVER: Final = "https://new.prosto.cam"
+DEFAULT_SERVER: Final = "https://my.prostocam.fyi"
+# Former addresses of the same server: saved connections move to DEFAULT_SERVER (entry 1.2).
+RETIRED_SERVER_HOSTS: Final = frozenset({"new.prosto.cam"})
 DEFAULT_TITLE: Final = "ProstoCAM"
 
 # ProstoCAM server API (JSON over HTTPS, `Authorization: Bearer <token>`).

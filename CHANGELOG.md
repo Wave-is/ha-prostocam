@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+- The default server is `https://my.prostocam.fyi`: ProstoCAM left the name `new.prosto.cam`.
+- A saved connection to `new.prosto.cam` (with or without `https://` and a trailing slash) moves to
+  `https://my.prostocam.fyi` by itself on update (config entry 1.1 → 1.2). The token stays, no new code is needed.
+  A server of your own is not changed. Absolute addresses in the replies of the server are used as they come.
+
 ## 1.0.2
 
 - A server in trouble is no longer taken for a revoked token. On 18.11.2026 the database of the server was

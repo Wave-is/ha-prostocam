@@ -88,6 +88,8 @@ class ProstoCamConfigFlow(ConfigFlow, domain=DOMAIN):
     """Pair Home Assistant with a ProstoCAM account."""
 
     VERSION = 1
+    # 1.2: a saved server new.prosto.cam is moved to my.prostocam.fyi (async_migrate_entry).
+    MINOR_VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

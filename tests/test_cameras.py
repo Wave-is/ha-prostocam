@@ -47,9 +47,9 @@ from homeassistant.util import dt as dt_util
 from .conftest import BASE, TOKEN, calls_to, server_config
 
 
-STREAM_URL = "https://new.prosto.cam/v2/stream"
+STREAM_URL = "https://my.prostocam.fyi/v2/stream"
 ALL_SCOPES = ["smart_home:ingest", "cameras:read", "events:read", "live:read"]
-HLS_URL = "https://new.prosto.cam/live/cam12/hls.m3u8?token=secret-start-token-12"
+HLS_URL = "https://my.prostocam.fyi/live/cam12/hls.m3u8?token=secret-start-token-12"
 JPEG = b"\xff\xd8\xff\xe0fake-jpeg-frame\xff\xd9"
 CURSOR_1 = "v1.WzE3NjAwMDAwMDAwMDAsMTAsMjAsLTEsIiIsIiIsW10sIiJd"
 CURSOR_2 = "v1.WzE3NjAwMDAwMTUwMDAsMTAsMjEsLTEsIiIsIiIsW10sIiJd"
@@ -605,10 +605,10 @@ async def test_heartbeat_reports_the_version(
     config_entry: MockConfigEntry,
     mock_server: Callable[..., None],
 ) -> None:
-    """The heartbeat carries the version of the integration (1.0.2, contract §14.6)."""
+    """The heartbeat carries the version of the integration (1.0.3, contract §14.6)."""
     await setup_v2(hass, aioclient_mock, config_entry, mock_server)
     heartbeat = calls_to(aioclient_mock, "heartbeat")[0]
-    assert heartbeat[2]["client_version"] == VERSION == "1.0.2"
+    assert heartbeat[2]["client_version"] == VERSION == "1.0.3"
 
 
 async def test_event_entity_fires_bus_state_change(
